@@ -9,14 +9,21 @@ taxonomy database.  It can look up taxons by their NCBI/ENA taxonomy identifier,
 or do a regex search through their scientific names.  It can also interactively
 navigate the taxonomy.
 
+`taxo` needs the `names.dmp` and `nodes.dmp` files from the
+[NCBI taxdump archive](ftp://ftp.ncbi.nih.gov/pub/taxonomy).  `taxo --help`
+explains where it searches for these files.
+
+### Performance?
+
 This version of taxo does the job, but takes a long time to load.  The reason
 is that it is an `awk` program which much load and 'join' the `names.dmp and`
 `nodes.dmp` files which contain several million records.
 
 A next version (on branch `taxo-ng`) will use a SQLite in-memory database in
 which it loads the dmp-files.  This should work much faster, and paves the way
-for adding e.g. citation cross-references from the
-[NCBI taxdump archive](ftp://ftp.ncbi.nih.gov/pub/taxonomy).
+for adding e.g. citation cross-references.
+
+### Why offline?
 
 In case you wonder why I don't just use the
 [Taxonomy browser](http://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=Root)
@@ -24,7 +31,8 @@ or [Taxonomy Common Tree](http://www.ncbi.nlm.nih.gov/Taxonomy/CommonTree/wwwcmt
 at [NCBI Taxonomy](http://www.ncbi.nlm.nih.gov/guide/taxonomy/): [this](http://io.zwets.it/about)
 may explain.  In my corner of the world, we have the Intermittentnet :-)
 
-This script was previously part of [blast-galley](https://github.com/zwets/blast-galley).
+Home: <https://github.com/zwets/taxo> (previously part of
+[blast-galley](https://github.com/zwets/blast-galley)).
 
 
 ## Examples

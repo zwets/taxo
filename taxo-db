@@ -1,0 +1,344 @@
+#!/bin/sh
+#
+#  taxo-db - SQL serve the taxonomy database
+#  Copyright (C) 2016  Marco van Zwetselaar <io@zwets.it>
+#
+#  This program is free software: you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation, either version 3 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+#  Home: http://github.com/zwets/taxo
+
+
+# Constants -----------------------------------------------------------------
+
+# Our name, for messages
+PRG_NAME="$(basename "$0")"
+
+# Default location for the SQLite database
+DEFAULT_SQLITE_DB="$HOME/.${PRG_NAME}/taxo.db"
+
+# The location where user can download the taxdump
+TAXDUMP_URL="ftp://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz"
+
+# Database definition -------------------------------------------------------
+# Every Column descriptions taken from the taxdump readme.txt
+# Column descriptions taken from the taxdump readme.txt
+
+DATABASE_CREATE_SQL='
+
+-- File nodes.dmp
+CREATE TABLE NodesTMP ( -- only used for import, dropped after move to Nodes
+  tax_id INTEGER PRIMARY KEY,   -- node id in GenBank taxonomy database
+  parent_tax_id INTEGER,        -- parent node id in GenBank taxonomy database
+  rank TEXT,                    -- rank of this node (superkingdom, kingdom, ...)
+                                -- note: replaced by rank_id join to table Ranks
+  embl_code CHAR(2),            -- locus-name prefix; not unique (e.g. SO,PP,AR,..)
+  div_id INTEGER,               -- see division.dmp file
+  div_is_inh BOOLEAN,           -- 1 if node inherits division from parent
+  gc_id INTEGER,                -- see gencode.dmp file
+  gc_is_inh BOOLEAN,            -- 1 if node inherits genetic code from parent
+  mito_gc_id INTEGER,           -- see gencode.dmp file
+  mito_gc_is_inh BOOLEAN,       -- 1 if node inherits mitochondrial gencode from parent
+  is_gb_hidden BOOLEAN,         -- 1 if name is suppressed in GenBank entry lineage
+  is_hidden_root BOOLEAN,       -- 1 if this subtree has no sequence data yet
+  comments VARCHAR              -- free-text comments and citations
+  );
+
+CREATE TABLE Nodes (
+  tax_id INTEGER PRIMARY KEY,
+  parent_tax_id INTEGER REFERENCES Nodes(tax_id),
+  rank_id INTEGER REFERENCES Ranks(rank_id),
+  embl_code CHAR(2),            -- locus-name prefix; not unique (e.g. SO,PP,AR,..)
+  div_id INTEGER REFERENCES Divisions(div_id),
+  div_is_inh BOOLEAN,           -- 1 if node inherits division from parent
+  gc_id INTEGER REFERENCES GenCodes(gc_id),
+  gc_is_inh BOOLEAN,            -- 1 if node inherits genetic code from parent
+  mito_gc_id INTEGER REFERENCES GenCodes(gc_id),
+  mito_gc_is_inh BOOLEAN,       -- 1 if node inherits mitochondrial gencode from parent
+  is_gb_hidden BOOLEAN,         -- 1 if name is suppressed in GenBank entry lineage
+  is_hidden_root BOOLEAN,       -- 1 if this subtree has no sequence data yet
+  comments VARCHAR              -- free-text comments and citations
+  );
+
+-- Ranks are not in separate file but take up lot of Names, so we normalise
+CREATE TABLE Ranks (
+  rank_id INTEGER PRIMARY KEY,  -- auto-increments on insert NULL
+  rank_name CHAR(20)
+  );
+
+CREATE INDEX RankName1 ON NodesTMP (rank);
+CREATE UNIQUE INDEX RankName2 ON Ranks (rank_name);
+
+-- File names.dmp
+CREATE TABLE NamesTMP (
+  tax_id INTEGER,       -- the id of node associated with this name
+  name VARCHAR,         -- name itself
+  unique_name VARCHAR,  -- the unique variant of name if name not unique
+  name_class CHAR(20)   -- {"synonym", "authority", "common name", "scientific name", ...}
+                        -- note: replaced by name_class_id pointing to NameClass
+  );
+
+CREATE TABLE Names (
+  tax_id INTEGER REFERENCES Nodes(tax_id),  -- the id of node associated with this name
+  name VARCHAR,         -- name itself
+  unique_name VARCHAR,  -- the unique variant of name if name not unique
+  name_class_id INTEGER REFERENCES NameClass(name_class_id)
+  );
+
+-- NameClass is not in separate file but takes up lot of Names, so we normalise
+CREATE TABLE NameClass (
+  name_class_id INTEGER PRIMARY KEY,  -- auto-increments on insert NULL
+  name_class_name CHAR(20)            --
+  );
+
+CREATE INDEX NameClassName1 ON NamesTMP (name_class);
+CREATE UNIQUE INDEX NameClassName2 ON NameClass (name_class_name);
+
+-- File divisions.dmp
+CREATE TABLE Divisions (
+  div_id INTEGER PRIMARY KEY,  -- taxonomy database division id
+  div_code CHAR(3),            -- GenBank division code (three characters) BCT, PLN, VRT, MAM, PRI...
+  div_name CHAR(20),           -- Bacteria, Invertebrates, Mammals, Synthetic, ...
+  div_comments VARCHAR
+  );
+
+-- File gencode.dmp has the various genetic codes
+CREATE TABLE GenCodes (
+  gc_id INTEGER PRIMARY KEY,  -- GenBank genetic code id
+  gc_abbr CHAR(1),	 -- genetic code name abbreviation (empty)
+  gc_name VARCHAR, 	 -- genetic code name
+  gc_cde CHAR(64),	 -- translation table for this genetic code
+  gc_starts CHAR(64)
+  );
+
+-- File citations.dmp
+CREATE TABLE CitationsTMP (
+  cit_id INTEGER PRIMARY KEY,  -- the unique id of citation
+  cit_key VARCHAR,     -- citation key
+  pubmed_id INTEGER,   -- unique id in PubMed database (0 if not in PubMed)
+  medline_id INTEGER,  -- unique id in MedLine database (0 if not in MedLine)
+  cit_url VARCHAR,     -- URL associated with citation
+  cit_text VARCHAR,    -- any text (usually article name and authors)
+                       -- note: backslash-escaped NEWLINE, TAB, DOUBLE QUOTE, BACKSLASH
+  tax_ids VARCHAR      -- list of node ids separated by a single space
+                       -- note: removed and replaced by table NodesCitations
+  );
+
+CREATE TABLE Citations (
+  cit_id INTEGER PRIMARY KEY,  -- the unique id of citation
+  cit_key VARCHAR,     -- citation key
+  pubmed_id INTEGER,   -- unique id in PubMed database (0 if not in PubMed)
+  medline_id INTEGER,  -- unique id in MedLine database (0 if not in MedLine)
+  cit_url VARCHAR,     -- URL associated with citation
+  cit_text VARCHAR     -- any text (usually article name and authors)
+                       -- note: backslash-escaped NEWLINE, TAB, DOUBLE QUOTE, BACKSLASH
+  );
+
+-- Links n:m Citations Nodes, not in separate file but created from Citations.tax_ids
+CREATE TABLE NodesCitations (
+  cit_id INTEGER REFERENCES Citations(cit_id),
+  tax_id INTEGER REFERENCES Nodes(tax_id)
+  );
+
+-- File delnodes.dmp
+CREATE TABLE DelNodes (
+  del_tax_id INTEGER PRIMARY KEY
+  );
+
+-- File mrgnodes.dmp
+CREATE TABLE MergedNodes (
+  tax_id INTEGER PRIMARY KEY,  -- id of nodes which has been merged
+  new_tax_id INTEGER           -- id of nodes which is result of merging
+  );
+  '
+
+DATABASE_RENORM_SQL='
+  -- Normalise Nodes.ranks
+  INSERT INTO Ranks (rank_name) SELECT DISTINCT rank as rank_name from NodesTMP;
+  INSERT INTO Nodes (tax_id, parent_tax_id, embl_code, div_id, div_is_inh, gc_id, gc_is_inh, mito_gc_id, mito_gc_is_inh, is_gb_hidden)
+         SELECT tax_id, parent_tax_id, embl_code, div_id, div_is_inh, gc_id, gc_is_inh, mito_gc_id, mito_gc_is_inh, is_gb_hidden FROM NodesTMP;
+  BEGIN;
+  WITH RankIds AS (SELECT tax_id, rank_id FROM NodesTMP JOIN Ranks WHERE rank = rank_name) 
+         UPDATE Nodes SET rank_id = (SELECT rank_id FROM RankIds WHERE RankIds.tax_id = Nodes.tax_id);
+  COMMIT;
+  DROP TABLE NodesTMP;
+  VACUUM;
+
+  -- Normalise Names.name_class
+  INSERT INTO NameClass (name_class_name) SELECT DISTINCT name_class as name_class_name from NamesTMP;
+  INSERT INTO Names (tax_id, name, unique_name)
+         SELECT tax_id, name, unique_name FROM NamesTMP;
+  BEGIN;
+  WITH NameClassIds AS (SELECT tax_id, name_class_id FROM NamesTMP JOIN NameClass WHERE name_class = name_class_name)
+         UPDATE Names SET name_class_id = (SELECT name_class_id FROM NameClassIds WHERE NameClassIds.tax_id = Names.tax_id);
+  COMMIT;
+  DROP TABLE NamesTMP;
+
+  -- Normallise Citations
+  INSERT INTO Citations SELECT cit_id, cit_key, pubmed_id, medline_id, cit_url, cit_text FROM CitationsTMP;
+  '
+
+# Functions -----------------------------------------------------------------
+
+# Emit arguments to stderr if VERBOSE
+emit () {
+    [ -z "$VERBOSE" ] || echo "${PRG_NAME}: $*" >&2 || true
+}
+
+# Exit this script with an error message on stderr
+err_exit () {
+    echo "${PRG_NAME}: $*" >&2
+    exit 1
+}
+
+# Remove the argument unless KEEP is set
+clean_up () {
+    if [ -n "$KEEP" ]; then
+        echo "$PRG_NAME: not removing $1"
+    elif [ -f "$1" ]; then
+        emit "removing file: $1"
+        rm -f "$1" || true
+    elif [ -d "S1" ]; then
+        emit "removing directory: $1"
+        rm -rf "$1" || true
+    fi
+}
+
+# Process the SQL coming from stdin or error out and clean up
+process_sql () {
+    sqlite3 -batch -bail "$TMP_DBFILE" || {
+        clean_up "$TMP_DIR"
+        clean_up "$TMP_DBFILE"
+        err_exit "no changes, database import failed"
+    }
+}
+
+# Import database from taxdump archive $1 
+import_database () {
+
+    # Check existence of taxdump to import
+    [ -n "$1" -a -f "$1" ] || err_exit "no such file: $1"
+
+if true; then
+    local TMP_DIR="/tmp/${PRG_NAME}"
+else
+    # Create working directory and unpack the taxdump
+    local TMP_DIR="/tmp/${PRG_NAME}.$$"
+    mkdir -p "$TMP_DIR"
+    emit "unpacking taxdump in $TMP_DIR"
+    tar -C "$TMP_DIR" -xzf "$1" || err_exit "failed to unpack: $1"
+
+    # Recode the field separators to single tabs and escape quotes
+    for F in nodes names division gencode citations delnodes merged; do
+        local FILE="$TMP_DIR/$F.dmp"
+        emit "preparing for import: $FILE"
+        sed -i -e 's/\t|//g' -e 's/"/\\"/g' "$FILE" || exit 1
+    done
+fi
+    # Create temporary database so as to not overwrite existing until success
+    local TMP_DBFILE="${SQLITE_DB}.$$"
+    emit "create temporary database: $TMP_DBFILE"
+    mkdir -p "$(dirname "$TMP_DBFILE")"
+    echo "$DATABASE_CREATE_SQL" | process_sql || exit 1
+
+    # Import the datafiles
+    emit "importing data"
+    echo "
+.separator '\t'
+.import '$TMP_DIR/gencode.dmp' GenCodes
+.import '$TMP_DIR/division.dmp' Divisions
+.import '$TMP_DIR/nodes.dmp' NodesTMP
+.import '$TMP_DIR/names.dmp' NamesTMP
+.import '$TMP_DIR/delnodes.dmp' DelNodes
+.import '$TMP_DIR/merged.dmp' MergedNodes
+.import '$TMP_DIR/citations.dmp' CitationsTMP
+" | process_sql || exit 1
+    clean_up "$TMP_DIR"
+
+    # Renormalise the data 
+    emit "normalising data"
+    echo "$DATABASE_RENORM_SQL" | process_sql || exit 1
+
+    emit "compacting the database"
+    echo "VACUUM;" | process_sql
+
+    # Successful import
+    emit "database import successful: $DQLITE_DB"
+    mv -f "$TMP_DBFILE" "$SQLITE_DB"
+}
+
+# Show usage information and exit
+usage_exit() {
+    echo "
+Usage: $PRG_NAME [OPTIONS]
+
+  Run a SQL interpreter on stdin to query the NCBI taxonomy database.
+
+  Options
+   -d, --db DBFILE       Database file (default: $DEFAULT_SQLITE_DB)
+   -i, --import TAXDUMP  Create or update database from TAXDUMP archive
+   -k, --keep            Do not delete temporary files (for debugging)
+   -v, --verbose         Show progress messages on stderr
+
+  This program opens a SQLite3 command prompt on stdin, connected to the
+  taxonomy database DBFILE.  To create or update DBFILE, download the archive
+  from and --import it.
+" >&2
+    exit ${1:-1}
+}
+
+# Parse options
+
+SQLITE_DB="$DEFAULT_SQLITE_DB"
+while [ $# -ne 0 -a "$(expr "$1" : '\(.\).*')" = "-" ]; do
+    case $1 in
+    -d|--db)
+        shift
+        [ $# -ge 1 ] || usage_exit
+        SQLITE_DB="$1"
+        ;;
+    --db=*)
+        SQLITE_DB="${1#--db=}"
+        ;;
+    -i|--import)
+        shift
+        [ $# -ge 1 ] || usage_exit
+        IMPORT_TGZ="$1"
+        ;;
+    --import=*)
+        IMPORT_TGZ="${1#--import=}"
+        ;;
+    -k|--keep)
+        KEEP=1
+        ;;
+    -v|--verbose)
+        VERBOSE=1
+        ;;
+    -h|--help)
+        usage_exit 0
+        ;;
+    *) usage_exit
+        ;;
+    esac
+    shift
+done
+
+# Import taxdump
+
+[ -z "$IMPORT_TGZ" ] || import_database "$IMPORT_TGZ" || err_exit "taxdump import failed"
+
+[ -f "$SQLITE_DB" ] || err_exit "no database file (use --import or --db): $SQLITE_DB"
+
+sqlite3 -interactive "$SQLITE_DB"
+
+# vim: sts=4:sw=4:ai:si:et

@@ -252,11 +252,14 @@ import_database () {
         { split ($7, tids, " "); for (i in tids) print tids[i], $1; }
         ' "$TMP_DIR/citations.dmp" > "$TMP_DIR/nodes_cites.tab"
 
-    # Recode the field separators to single tabs and escape quotes
+    # Recode the field separators to single tabs, and escape unescaped double quotes
+    # Note: the citation file has rather unsanitised cit_text field with erroneous backslashes
     for F in nodes names division gencode citations delnodes merged; do
         local FILE="$TMP_DIR/$F.dmp"
         emit "preparing for import: $FILE"
-        sed -i -e 's/\t|//g' -e 's/"/\\"/g' "$FILE" || exit 1
+        # sed -i -e 's/\t|//g' -e 's/"/\\"/g' "$FILE" || exit 1
+        # sed -i -e 's/\t|//g' -e 's/\\/\\\\/g' "$FILE" || exit 1
+        sed -i -e 's/\t|//g' -e 's/\([^\\]\)"/\1\\"/g' "$FILE" || exit 1
     done
 
     # Create temporary database so as to not overwrite existing until success

@@ -31,13 +31,16 @@ DEFAULT_SQLITE_DB="$HOME/.${PRG_NAME}/taxo.db"
 TAXDUMP_URL="ftp://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz"
 
 # Database definition -------------------------------------------------------
-# Every Column descriptions taken from the taxdump readme.txt
-# Column descriptions taken from the taxdump readme.txt
+# Column descriptions taken from the taxdump readme.txt.
+# Use TEMP tables for non-denormalised tables, denormalise after import.
 
 DATABASE_CREATE_SQL='
 
--- File nodes.dmp
-CREATE TABLE NodesTMP ( -- only used for import, dropped after move to Nodes
+SELECT "Creating tables ...";
+
+-- File nodes.dmp / tables Nodes and Ranks
+
+CREATE TEMPORARY TABLE NodesTMP ( -- only used for import, dropped after move to Nodes
   tax_id INTEGER PRIMARY KEY,   -- node id in GenBank taxonomy database
   parent_tax_id INTEGER,        -- parent node id in GenBank taxonomy database
   rank TEXT,                    -- rank of this node (superkingdom, kingdom, ...)
@@ -70,17 +73,17 @@ CREATE TABLE Nodes (
   comments VARCHAR              -- free-text comments and citations
   );
 
--- Ranks are not in separate file but take up lot of Names, so we normalise
-CREATE TABLE Ranks (
-  rank_id INTEGER PRIMARY KEY,  -- auto-increments on insert NULL
+CREATE TABLE Ranks ( -- normalised out from NodesTMP
+  rank_id INTEGER PRIMARY KEY,
   rank_name CHAR(20)
   );
 
-CREATE INDEX RankName1 ON NodesTMP (rank);
-CREATE UNIQUE INDEX RankName2 ON Ranks (rank_name);
+CREATE INDEX RankName1TMP ON NodesTMP (rank);
+CREATE UNIQUE INDEX RankName2TMP ON Ranks (rank_name);
 
--- File names.dmp
-CREATE TABLE NamesTMP (
+-- File names.dmp / tables Names and NameClass
+
+CREATE TEMPORARY TABLE NamesTMP (
   tax_id INTEGER,       -- the id of node associated with this name
   name VARCHAR,         -- name itself
   unique_name VARCHAR,  -- the unique variant of name if name not unique
@@ -89,22 +92,22 @@ CREATE TABLE NamesTMP (
   );
 
 CREATE TABLE Names (
-  tax_id INTEGER REFERENCES Nodes(tax_id),  -- the id of node associated with this name
-  name VARCHAR,         -- name itself
-  unique_name VARCHAR,  -- the unique variant of name if name not unique
+  tax_id INTEGER REFERENCES Nodes(tax_id),
+  name VARCHAR,                -- name itself
+  unique_name VARCHAR,         -- the unique variant of name if name not unique
   name_class_id INTEGER REFERENCES NameClass(name_class_id)
   );
 
--- NameClass is not in separate file but takes up lot of Names, so we normalise
-CREATE TABLE NameClass (
-  name_class_id INTEGER PRIMARY KEY,  -- auto-increments on insert NULL
-  name_class_name CHAR(20)            --
+CREATE TABLE NameClass ( -- normalised out from NamesTMP
+  name_class_id INTEGER PRIMARY KEY,
+  name_class_name CHAR(20)     -- "synonym", "scientific name", "authority", etc.
   );
 
-CREATE INDEX NameClassName1 ON NamesTMP (name_class);
-CREATE UNIQUE INDEX NameClassName2 ON NameClass (name_class_name);
+CREATE INDEX NameClassName1TMP ON NamesTMP (name_class);
+CREATE UNIQUE INDEX NameClassName2TMP ON NameClass (name_class_name);
 
--- File divisions.dmp
+-- File divisions.dmp / table Divisions (division of tree of life)
+
 CREATE TABLE Divisions (
   div_id INTEGER PRIMARY KEY,  -- taxonomy database division id
   div_code CHAR(3),            -- GenBank division code (three characters) BCT, PLN, VRT, MAM, PRI...
@@ -112,17 +115,19 @@ CREATE TABLE Divisions (
   div_comments VARCHAR
   );
 
--- File gencode.dmp has the various genetic codes
+-- File gencode.dmp / table GenCodes (genetic codes)
+
 CREATE TABLE GenCodes (
-  gc_id INTEGER PRIMARY KEY,  -- GenBank genetic code id
-  gc_abbr CHAR(1),	 -- genetic code name abbreviation (empty)
-  gc_name VARCHAR, 	 -- genetic code name
-  gc_cde CHAR(64),	 -- translation table for this genetic code
+  gc_id INTEGER PRIMARY KEY,   -- GenBank genetic code id
+  gc_abbr CHAR(1),	       -- genetic code name abbreviation (empty)
+  gc_name VARCHAR, 	       -- genetic code name
+  gc_cde CHAR(64),	       -- translation table for this genetic code
   gc_starts CHAR(64)
   );
 
--- File citations.dmp
-CREATE TABLE CitationsTMP (
+-- File citations.dmp / tables Citations and NodesCitations
+
+CREATE TEMPORARY TABLE CitationsTMP (
   cit_id INTEGER PRIMARY KEY,  -- the unique id of citation
   cit_key VARCHAR,     -- citation key
   pubmed_id INTEGER,   -- unique id in PubMed database (0 if not in PubMed)
@@ -131,12 +136,12 @@ CREATE TABLE CitationsTMP (
   cit_text VARCHAR,    -- any text (usually article name and authors)
                        -- note: backslash-escaped NEWLINE, TAB, DOUBLE QUOTE, BACKSLASH
   tax_ids VARCHAR      -- list of node ids separated by a single space
-                       -- note: removed and replaced by table NodesCitations
+                       -- note: removed and replaced by m:n table NodesCitations
   );
 
-CREATE TABLE Citations (
+CREATE TABLE Citations ( -- citations in literature (m:n relation with Nodes)
   cit_id INTEGER PRIMARY KEY,  -- the unique id of citation
-  cit_key VARCHAR,     -- citation key
+  cit_key VARCHAR,     -- citation key (words)
   pubmed_id INTEGER,   -- unique id in PubMed database (0 if not in PubMed)
   medline_id INTEGER,  -- unique id in MedLine database (0 if not in MedLine)
   cit_url VARCHAR,     -- URL associated with citation
@@ -144,50 +149,63 @@ CREATE TABLE Citations (
                        -- note: backslash-escaped NEWLINE, TAB, DOUBLE QUOTE, BACKSLASH
   );
 
--- Links n:m Citations Nodes, not in separate file but created from Citations.tax_ids
-CREATE TABLE NodesCitations (
+CREATE TABLE NodesCitations ( -- m:n relation of nodes and citations
   tax_id INTEGER REFERENCES Nodes(tax_id),
   cit_id INTEGER REFERENCES Citations(cit_id)
   );
 
 CREATE UNIQUE INDEX NodesCitationsIdx ON NodesCitations (tax_id, cit_id);
 
--- File delnodes.dmp
-CREATE TABLE DelNodes (
-  del_tax_id INTEGER PRIMARY KEY
+-- File delnodes.dmp / table DelNodes (deleted taxonomy IDs)
+
+CREATE TABLE DelNodes ( -- del_tax_id that exist no longer
+  del_tax_id INTEGER PRIMARY KEY  -- note: no del_tax_id references a Nodes.tax_id
   );
 
--- File mrgnodes.dmp
-CREATE TABLE MergedNodes (
-  tax_id INTEGER PRIMARY KEY,  -- id of nodes which has been merged
-  new_tax_id INTEGER           -- id of nodes which is result of merging
+-- File mrgnodes.dmp / table MergedNodes (merged or renamed taxonomy IDs)
+
+CREATE TABLE MergedNodes ( -- old_tax_id that have merged into or renamed to tax_id
+  old_tax_id INTEGER PRIMARY KEY, -- note: no old_tax_id references a Nodes.tax_id
+  tax_id INTEGER REFERENCES Nodes (tax_id)
   );
+
+CREATE INDEX MergedNodesIdx ON MergedNodes (tax_id);
   '
 
 DATABASE_RENORM_SQL='
-  -- Normalise Nodes.ranks
-  INSERT INTO Ranks (rank_name) SELECT DISTINCT rank as rank_name from NodesTMP;
-  ALTER TABLE NodesTMP ADD COLUMN rank_id INTEGER;
-  UPDATE NodesTMP SET rank_id = (SELECT rank_id FROM Ranks WHERE rank_name = rank);
-  INSERT INTO Nodes (tax_id, parent_tax_id, rank_id, embl_code, div_id, div_is_inh, gc_id, gc_is_inh, mito_gc_id, mito_gc_is_inh, is_gb_hidden)
-         SELECT tax_id, parent_tax_id, rank_id, embl_code, div_id, div_is_inh, gc_id, gc_is_inh, mito_gc_id, mito_gc_is_inh, is_gb_hidden FROM NodesTMP;
-  DROP INDEX RankName1;
-  DROP INDEX RankName2;
-  DROP TABLE NodesTMP;
+  
+SELECT "Normalising Nodes ...";
 
-  -- Normalise Names.name_class
-  INSERT INTO NameClass (name_class_name) SELECT DISTINCT name_class as name_class_name from NamesTMP;
-  ALTER TABLE NamesTMP ADD COLUMN name_class_id INTEGER;
-  UPDATE NamesTMP SET name_class_id = (SELECT name_class_id FROM NameClass WHERE name_class_name = name_class);
-  INSERT INTO Names (tax_id, name, unique_name, name_class_id)
-         SELECT tax_id, name, unique_name, name_class_id FROM NamesTMP;
-  DROP INDEX NameClassName1;
-  DROP INDEX NameClassName2;
-  DROP TABLE NamesTMP;
+INSERT INTO Ranks (rank_name) SELECT DISTINCT rank as rank_name from NodesTMP;
+ALTER TABLE NodesTMP ADD COLUMN rank_id INTEGER;
+UPDATE NodesTMP SET rank_id = (SELECT rank_id FROM Ranks WHERE rank_name = rank);
+INSERT INTO Nodes (tax_id, parent_tax_id, rank_id, embl_code, div_id, div_is_inh, gc_id, gc_is_inh, mito_gc_id, mito_gc_is_inh, is_gb_hidden)
+       SELECT tax_id, parent_tax_id, rank_id, embl_code, div_id, div_is_inh, gc_id, gc_is_inh, mito_gc_id, mito_gc_is_inh, is_gb_hidden FROM NodesTMP;
+DROP INDEX RankName1TMP;
+DROP INDEX RankName2TMP;
+DROP TABLE NodesTMP;
 
-  -- Normallise Citations
-  INSERT INTO Citations SELECT cit_id, cit_key, pubmed_id, medline_id, cit_url, cit_text FROM CitationsTMP;
-  DROP TABLE CitationsTMP;
+SELECT "Normalising Names ...";
+
+INSERT INTO NameClass (name_class_name) SELECT DISTINCT name_class as name_class_name from NamesTMP;
+ALTER TABLE NamesTMP ADD COLUMN name_class_id INTEGER;
+UPDATE NamesTMP SET name_class_id = (SELECT name_class_id FROM NameClass WHERE name_class_name = name_class);
+INSERT INTO Names (tax_id, name, unique_name, name_class_id)
+       SELECT tax_id, name, unique_name, name_class_id FROM NamesTMP;
+DROP INDEX NameClassName1TMP;
+DROP INDEX NameClassName2TMP;
+DROP TABLE NamesTMP;
+
+SELECT "Normalising Citations ...";
+
+INSERT INTO Citations SELECT cit_id, cit_key, pubmed_id, medline_id, cit_url, cit_text FROM CitationsTMP;
+DROP TABLE CitationsTMP;
+
+SELECT "Compacting database ...";
+
+VACUUM;
+
+SELECT "Done.";
   '
 
 # Functions -----------------------------------------------------------------
@@ -216,24 +234,12 @@ clean_up () {
     fi
 }
 
-# Process the SQL coming from stdin or error out and clean up
-process_sql () {
-    sqlite3 -batch -bail "$TMP_DBFILE" || {
-        clean_up "$TMP_DIR"
-        clean_up "$TMP_DBFILE"
-        err_exit "no changes, database import failed"
-    }
-}
-
 # Import database from taxdump archive $1 
 import_database () {
 
     # Check existence of taxdump to import
     [ -n "$1" -a -f "$1" ] || err_exit "no such file: $1"
 
-if false; then
-    local TMP_DIR="/tmp/${PRG_NAME}"
-else
     # Create working directory and unpack the taxdump
     local TMP_DIR="/tmp/${PRG_NAME}.$$"
     mkdir -p "$TMP_DIR"
@@ -245,22 +251,22 @@ else
     awk -b -O 'BEGIN { FS="\t\\|\t"; RS="\t\\|\n"; OFS="\t"; ORS="\n"; }
         { split ($7, tids, " "); for (i in tids) print tids[i], $1; }
         ' "$TMP_DIR/citations.dmp" > "$TMP_DIR/nodes_cites.tab"
+
     # Recode the field separators to single tabs and escape quotes
     for F in nodes names division gencode citations delnodes merged; do
         local FILE="$TMP_DIR/$F.dmp"
         emit "preparing for import: $FILE"
         sed -i -e 's/\t|//g' -e 's/"/\\"/g' "$FILE" || exit 1
     done
-fi
+
     # Create temporary database so as to not overwrite existing until success
     local TMP_DBFILE="${SQLITE_DB}.$$"
     emit "create temporary database: $TMP_DBFILE"
     mkdir -p "$(dirname "$TMP_DBFILE")"
-    echo "$DATABASE_CREATE_SQL" | process_sql || exit 1
 
-    # Import the datafiles
-    emit "importing data"
-    echo "
+    # Run the database creation, import and renormalisation
+    echo "$DATABASE_CREATE_SQL
+    SELECT \"Importing data ...\";
 .separator '\t'
 .import '$TMP_DIR/gencode.dmp' GenCodes
 .import '$TMP_DIR/division.dmp' Divisions
@@ -270,18 +276,16 @@ fi
 .import '$TMP_DIR/merged.dmp' MergedNodes
 .import '$TMP_DIR/citations.dmp' CitationsTMP
 .import '$TMP_DIR/nodes_cites.tab' NodesCitations
-" | process_sql || exit 1
-    clean_up "$TMP_DIR"
-
-    # Renormalise the data 
-    emit "normalising data"
-    echo "$DATABASE_RENORM_SQL" | process_sql || exit 1
-
-    emit "compacting the database"
-    echo "VACUUM;" | process_sql
+    $DATABASE_RENORM_SQL
+" | sqlite3 -batch -bail "$TMP_DBFILE" || {
+        clean_up "$TMP_DIR"
+        clean_up "$TMP_DBFILE"
+        err_exit "no changes, database import failed"
+    }
 
     # Successful import
     emit "database import successful: $DQLITE_DB"
+    clean_up "$TMP_DIR"
     mv -f "$TMP_DBFILE" "$SQLITE_DB"
 }
 

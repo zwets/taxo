@@ -55,7 +55,7 @@ CREATE TABLE NodesTMP ( -- only used for import, dropped after move to Nodes
   );
 
 CREATE TABLE Nodes (
-  tax_id INTEGER PRIMARY KEY,
+  tax_id INTEGER PRIMARY KEY,   -- node id in GenBank taxonomy database
   parent_tax_id INTEGER REFERENCES Nodes(tax_id),
   rank_id INTEGER REFERENCES Ranks(rank_id),
   embl_code CHAR(2),            -- locus-name prefix; not unique (e.g. SO,PP,AR,..)
@@ -146,9 +146,11 @@ CREATE TABLE Citations (
 
 -- Links n:m Citations Nodes, not in separate file but created from Citations.tax_ids
 CREATE TABLE NodesCitations (
-  cit_id INTEGER REFERENCES Citations(cit_id),
-  tax_id INTEGER REFERENCES Nodes(tax_id)
+  tax_id INTEGER REFERENCES Nodes(tax_id),
+  cit_id INTEGER REFERENCES Citations(cit_id)
   );
+
+CREATE UNIQUE INDEX NodesCitationsIdx ON NodesCitations (tax_id, cit_id);
 
 -- File delnodes.dmp
 CREATE TABLE DelNodes (
@@ -165,27 +167,27 @@ CREATE TABLE MergedNodes (
 DATABASE_RENORM_SQL='
   -- Normalise Nodes.ranks
   INSERT INTO Ranks (rank_name) SELECT DISTINCT rank as rank_name from NodesTMP;
-  INSERT INTO Nodes (tax_id, parent_tax_id, embl_code, div_id, div_is_inh, gc_id, gc_is_inh, mito_gc_id, mito_gc_is_inh, is_gb_hidden)
-         SELECT tax_id, parent_tax_id, embl_code, div_id, div_is_inh, gc_id, gc_is_inh, mito_gc_id, mito_gc_is_inh, is_gb_hidden FROM NodesTMP;
-  BEGIN;
-  WITH RankIds AS (SELECT tax_id, rank_id FROM NodesTMP JOIN Ranks WHERE rank = rank_name) 
-         UPDATE Nodes SET rank_id = (SELECT rank_id FROM RankIds WHERE RankIds.tax_id = Nodes.tax_id);
-  COMMIT;
+  ALTER TABLE NodesTMP ADD COLUMN rank_id INTEGER;
+  UPDATE NodesTMP SET rank_id = (SELECT rank_id FROM Ranks WHERE rank_name = rank);
+  INSERT INTO Nodes (tax_id, parent_tax_id, rank_id, embl_code, div_id, div_is_inh, gc_id, gc_is_inh, mito_gc_id, mito_gc_is_inh, is_gb_hidden)
+         SELECT tax_id, parent_tax_id, rank_id, embl_code, div_id, div_is_inh, gc_id, gc_is_inh, mito_gc_id, mito_gc_is_inh, is_gb_hidden FROM NodesTMP;
+  DROP INDEX RankName1;
+  DROP INDEX RankName2;
   DROP TABLE NodesTMP;
-  VACUUM;
 
   -- Normalise Names.name_class
   INSERT INTO NameClass (name_class_name) SELECT DISTINCT name_class as name_class_name from NamesTMP;
-  INSERT INTO Names (tax_id, name, unique_name)
-         SELECT tax_id, name, unique_name FROM NamesTMP;
-  BEGIN;
-  WITH NameClassIds AS (SELECT tax_id, name_class_id FROM NamesTMP JOIN NameClass WHERE name_class = name_class_name)
-         UPDATE Names SET name_class_id = (SELECT name_class_id FROM NameClassIds WHERE NameClassIds.tax_id = Names.tax_id);
-  COMMIT;
+  ALTER TABLE NamesTMP ADD COLUMN name_class_id INTEGER;
+  UPDATE NamesTMP SET name_class_id = (SELECT name_class_id FROM NameClass WHERE name_class_name = name_class);
+  INSERT INTO Names (tax_id, name, unique_name, name_class_id)
+         SELECT tax_id, name, unique_name, name_class_id FROM NamesTMP;
+  DROP INDEX NameClassName1;
+  DROP INDEX NameClassName2;
   DROP TABLE NamesTMP;
 
   -- Normallise Citations
   INSERT INTO Citations SELECT cit_id, cit_key, pubmed_id, medline_id, cit_url, cit_text FROM CitationsTMP;
+  DROP TABLE CitationsTMP;
   '
 
 # Functions -----------------------------------------------------------------
@@ -229,7 +231,7 @@ import_database () {
     # Check existence of taxdump to import
     [ -n "$1" -a -f "$1" ] || err_exit "no such file: $1"
 
-if true; then
+if false; then
     local TMP_DIR="/tmp/${PRG_NAME}"
 else
     # Create working directory and unpack the taxdump
@@ -238,6 +240,11 @@ else
     emit "unpacking taxdump in $TMP_DIR"
     tar -C "$TMP_DIR" -xzf "$1" || err_exit "failed to unpack: $1"
 
+    # Produce the NodesCitations import file
+    emit "creating $TMP_DIR/nodes_cites.tab"
+    awk -b -O 'BEGIN { FS="\t\\|\t"; RS="\t\\|\n"; OFS="\t"; ORS="\n"; }
+        { split ($7, tids, " "); for (i in tids) print tids[i], $1; }
+        ' "$TMP_DIR/citations.dmp" > "$TMP_DIR/nodes_cites.tab"
     # Recode the field separators to single tabs and escape quotes
     for F in nodes names division gencode citations delnodes merged; do
         local FILE="$TMP_DIR/$F.dmp"
@@ -262,6 +269,7 @@ fi
 .import '$TMP_DIR/delnodes.dmp' DelNodes
 .import '$TMP_DIR/merged.dmp' MergedNodes
 .import '$TMP_DIR/citations.dmp' CitationsTMP
+.import '$TMP_DIR/nodes_cites.tab' NodesCitations
 " | process_sql || exit 1
     clean_up "$TMP_DIR"
 

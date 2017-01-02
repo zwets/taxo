@@ -208,6 +208,12 @@ VACUUM;
 SELECT "Done.";
   '
 
+DATABASE_VIEWS_SQL='CREATE VIEW SciNamesView (tax_id, rank_name, sci_name, par_id) AS
+  SELECT T.tax_id, CASE R.rank_name WHEN "no rank" THEN "-" ELSE R.rank_name END, N.name, T.parent_tax_id
+  FROM Nodes T NATURAL JOIN Names N NATURAL JOIN NameClass C NATURAL JOIN Ranks R
+  WHERE C.name_class_name = "scientific name";
+  '
+
 # Functions -----------------------------------------------------------------
 
 # Emit arguments to stderr if VERBOSE
@@ -253,12 +259,11 @@ import_database () {
         ' "$TMP_DIR/citations.dmp" > "$TMP_DIR/nodes_cites.tab"
 
     # Recode the field separators to single tabs, and escape unescaped double quotes
-    # Note: the citation file has rather unsanitised cit_text field with erroneous backslashes
+    # Note: the citation file has a rather unsanitised cit_text field; it should
+    # escape double quote, tab, newline and backslash, but doesn't alwasy.
     for F in nodes names division gencode citations delnodes merged; do
         local FILE="$TMP_DIR/$F.dmp"
         emit "preparing for import: $FILE"
-        # sed -i -e 's/\t|//g' -e 's/"/\\"/g' "$FILE" || exit 1
-        # sed -i -e 's/\t|//g' -e 's/\\/\\\\/g' "$FILE" || exit 1
         sed -i -e 's/\t|//g' -e 's/\([^\\]\)"/\1\\"/g' "$FILE" || exit 1
     done
 
@@ -280,6 +285,7 @@ import_database () {
 .import '$TMP_DIR/citations.dmp' CitationsTMP
 .import '$TMP_DIR/nodes_cites.tab' NodesCitations
     $DATABASE_RENORM_SQL
+    $DATABASE_VIEWS_SQL
 " | sqlite3 -batch -bail "$TMP_DBFILE" || {
         clean_up "$TMP_DIR"
         clean_up "$TMP_DBFILE"
@@ -295,7 +301,7 @@ import_database () {
 # Show usage information and exit
 usage_exit() {
     echo "
-Usage: $PRG_NAME [OPTIONS]
+Usage: $PRG_NAME [OPTIONS] [SQL]
 
   Run a SQL interpreter on stdin to query the NCBI taxonomy database.
 
@@ -305,16 +311,18 @@ Usage: $PRG_NAME [OPTIONS]
    -k, --keep            Do not delete temporary files (for debugging)
    -v, --verbose         Show progress messages on stderr
 
-  This program opens a SQLite3 command prompt on stdin, connected to the
-  taxonomy database DBFILE.  To create or update DBFILE, download the archive
-  from and --import it.
+  This program executes SQL against the taxonomy database DBFILE.  If no
+  SQL argument is present or when it is '-', reads from stdin.
+
+  The database is generated from the NCBI taxdump archive.  To update it,
+  download $TAXDUMP_URL and --import it.
 " >&2
     exit ${1:-1}
 }
 
 # Check for sqlite3 
 
-which sqlite3 2>/dev/null || err_exit "sqlite3 command not found (is SQLite3 installed?)"
+which sqlite3 >/dev/null 2>&1 || err_exit "sqlite3 command not found (is SQLite3 installed?)"
 
 # Parse options
 
@@ -358,6 +366,10 @@ done
 
 [ -f "$SQLITE_DB" ] || err_exit "no database file (use --import or --db): $SQLITE_DB"
 
-sqlite3 -interactive "$SQLITE_DB"
+if [ -n "$1" ]; then
+    echo "$1" | sqlite3 -separator '	' "$SQLITE_DB"
+else
+    sqlite3 -separator '	' "$SQLITE_DB"
+fi
 
 # vim: sts=4:sw=4:ai:si:et

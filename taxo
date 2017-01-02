@@ -18,67 +18,48 @@
 #
 #  Home: http://github.com/zwets/taxo
 
-
-# FOR REFERENCE, the contents of the NAMES and NODES files (from the taxdump_readme.txt)
-#                separators in all dmp files are TAB|TAB and TAB|NEWLINE
-
-# NAMES_DMP
-#  1. tax_id       -- the id of node associated with this name
-#  2. name_txt     -- name itself
-#  3. unique name  -- the unique variant of this name if name not unique
-#  4. name class   -- (synonym, common name, ...)
-#     anamorph, authority, blast name, common name, equivalent name, genbank acronym, genbank anamorph,
-#     genbank common name, genbank synonym, includes, in-part, misnomer, misspelling, scientific name,
-#     synonym, teleomorphr, type material
-
-# NODES_DMP
-#  1. tax_id                              -- node id in GenBank taxonomy database
-#  2. parent tax_id                       -- parent node id in GenBank taxonomy database
-#  3. rank                                -- rank of this node (superkingdom, kingdom, ...)
-#  4. embl code                           -- locus-name prefix; not unique (e.g. SO,PP,AR,..)
-#  5. division id                         -- see division.dmp file
-#  6. inherited div flag  (1 or 0)        -- 1 if node inherits division from parent
-#  7. genetic code id                     -- see gencode.dmp file
-#  8. inherited GC  flag  (1 or 0)        -- 1 if node inherits genetic code from parent
-#  9. mitochondrial genetic code id       -- see gencode.dmp file
-#  10. inherited MGC flag  (1 or 0)       -- 1 if node inherits mitochondrial gencode from parent
-#  11. GenBank hidden flag (1 or 0)       -- 1 if name is suppressed in GenBank entry lineage
-#  12. hidden subtree root flag (1 or 0)  -- 1 if this subtree has no sequence data yet
-#  13. comments                           -- free-text comments and citations
-
-# Defaults and constants
-
 PRETTY_PRINTFMT='%7d\040%-12s\040%s\n'
 TABSEP_PRINTFMT='%s\t%s\t%s\n'
 PRINTFMT="$PRETTY_PRINTFMT"	# Switched to TABSEP if option --tabs is given
 
-# Lookup the scientific name for numeric TAXID in the NAMES file
+# Lookup the scientific name for numeric TAXID
 taxid_sciname() {
-    fgrep '	scientific name	' "$NAMES_DMP" | grep -m 1 "^$1	" | sed -e 's/\t|//g' | cut -f 2
+    taxo-db "SELECT name FROM Names JOIN NameClass USING (name_class_id)
+             WHERE tax_id = $1 AND name_class_name = 'scientific name';"
 }
 
-# Grep for numeric TAXID through the NODES file, print tax ID, rank and name (from NAMES file)
+# Convenience function to pick $1-th field from tab-separated string $2
+field () {
+    local NTH=$1
+    if [ -n "$2" ]; then
+        echo "$2" | cut -f $NTH
+    else
+        cut -f $NTH
+    fi
+}
+
+# Print tax ID, rank and name, optionally recursing over parents first
 # Args: $1=TAXID [$2=anything]; when $2 is present, recurse upward to print all ancestors
 lookup_taxid() {
-    local NODE_LINE="$(grep "^$1	" "$NODES_DMP")"
+    local NODE_LINE="$(taxo-db "SELECT * FROM SciNamesView WHERE tax_id = $1;")"
     [ -n "$NODE_LINE" ] || return
     if [ $# -eq 2 ]; then    # recurse up to root first
-        local PARENT=$(expr "$NODE_LINE" : '[^|]*|	\([^	]*\)')
+        local PARENT="$(field 4 "$NODE_LINE")"
         [ $PARENT -eq 1 ] || lookup_taxid $PARENT $2
     fi
-    local RANK="$(expr "$NODE_LINE" : '[^|]*|[^|]*|	\([^	]*\)' | sed -e 's/no rank//')"
-    printf "$PRINTFMT" "$1" "$RANK" "$(taxid_sciname $1)"
+    printf "$PRINTFMT" "$1" "$(field 2 "$NODE_LINE")" "$(field 3 "$NODE_LINE")"
 }
 
-# Grep for regex NAME through the NAMES file, output tax ID and scientific name
-# No join with the NODES file because there can be very many hits
-# Args: $1=REGEX, will be anchored at head, so use .* to search anywhere in string
+# Grep for regex NAME, through the NAMES file, output tax ID and scientific name
+# Args: $1=REGEX
 search_name() {
-    # Fix the regex: no starting ^ because it is in column 2, not at start of line.
-    # We already anchor it to the "left of its column", i.e. the |\t.
-    # Also replace final $ by the field separator so it behaves like a proper regex.
-    local REGEX="^[^|]*|	$(echo "$1" | sed -e 's/^^//' -e 's/$$/\t|\t/')"
-    fgrep '	scientific name	' "$NAMES_DMP" | grep "$REGEX" | sed -e 's/\t|//g' | cut -f 1,2
+    # Fix the regex: starting ^ becomes tab because it is in column 3
+    local REGEX="$(echo "$1" | sed -e 's/^^/\t/')"
+    taxo-db "SELECT tax_id, rank_name, sci_name FROM SciNamesView;" | 
+        grep "$REGEX" |
+        while read TAX RANK NAME; do 
+            printf "$PRINTFMT" "$TAX" "$RANK" "$NAME"
+        done
 }
 
 # Exit this script with an error message on stderr
@@ -163,18 +144,6 @@ while [ $# -ne 0 -a "$(expr "$1" : '\(.\).*')" = "-" ]; do
     shift
 done
 
-# Locate the NODES and NAMES files
-
-[ -n "$TAX_DIR" ] || TAX_DIR="$NCBI_TAXDUMP_DIR"
-[ -z "$TAX_DIR" ] || [ -d "$TAX_DIR" ] || err_exit "no such directory: $TAX_DIR"
-[ -n "$TAX_DIR" ] || TAX_DIR="."
-
-NODES_DMP="$TAX_DIR/nodes.dmp"
-NAMES_DMP="$TAX_DIR/names.dmp"
-
-[ -f "$NODES_DMP" ] || err_exit "no such file (set NCBI_TAXDUMP_DIR or use --dir): $NODES_DMP"
-[ -f "$NAMES_DMP" ] || err_exit "no such file (set NCBI_TAXDUMP_DIR or use --dir): $NAMES_DMP"
-
 # If there are no arguments then always interactive mode
 
 [ $# -ne 0 ] || INTERACTIVE="yes"
@@ -201,9 +170,6 @@ fi
 
 awk -b -O -v NMS_FILE="$NAMES_DMP" -v NDS_FILE="$NODES_DMP" -v QUIET=$QUIET -v ANCESTRY="$ANCESTRY" -v ARGS="$*" '
 BEGIN { 
-    # Set field and record separator to the funny taxdumps convention
-    FS="\t\\|\t" ; RS="\t\\|\n"
-
     # Constants to index the TAX[id][x] subarrays
     IxName=1 ; IxParent=2 ; IxRank=3
 
@@ -232,7 +198,7 @@ BEGIN {
     prompt()
 }
 
-function prt(i) {
+function prt(i) 
     printf "'$PRINTFMT'", i, (TAX[i][IxRank] == "no rank" ? "" : TAX[i][IxRank]), TAX[i][IxName]
     PRT_COUNTER += 1
 }
@@ -321,4 +287,4 @@ function prompt() {
 /^q(uit)?$/             { if (!QUIET) print "Bye"; exit 0 }
 { prompt() }'
 
-# vim sts=4:sw=4:ai:si:et
+# vim: sts=4:sw=4:ai:si:et

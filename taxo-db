@@ -309,6 +309,10 @@ Usage: $PRG_NAME [OPTIONS]
     exit ${1:-1}
 }
 
+# Check for sqlite3 
+
+which sqlite3 2>/dev/null || err_exit "sqlite3 command not found (is SQLite3 installed?)"
+
 # Parse options
 
 SQLITE_DB="$DEFAULT_SQLITE_DB"

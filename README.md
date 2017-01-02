@@ -1,6 +1,6 @@
 # taxo
 
-_Command line taxonomy browser_
+_Command line NCBI/ENA taxonomy browser_
 
 ## Introduction
 
@@ -9,19 +9,9 @@ taxonomy database.  It can look up taxons by their NCBI/ENA taxonomy identifier,
 or do a regex search through their scientific names.  It can also interactively
 navigate the taxonomy.
 
-`taxo` needs the `names.dmp` and `nodes.dmp` files from the
-[NCBI taxdump archive](ftp://ftp.ncbi.nih.gov/pub/taxonomy).  `taxo --help`
-explains where it searches for these files.
-
-### Performance?
-
-This version of taxo does the job, but takes a long time to load.  The reason
-is that it is an `awk` program which much load and 'join' the `names.dmp and`
-`nodes.dmp` files which contain several million records.
-
-A next version (on branch `taxo-ng`) will use a SQLite in-memory database in
-which it loads the dmp-files.  This should work much faster, and paves the way
-for adding e.g. citation cross-references.
+`taxo` uses `taxo-db` as its back-end.  `taxo-db` imports the 
+[NCBI taxdump archive](ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz)
+into a SQLite3 database and provides a SQL command interface to the database.
 
 ### Why offline?
 
@@ -67,7 +57,7 @@ $ taxo 286 666
     666 species      Vibrio cholerae
 ```
 
-Querying hierarchy for a species:
+Retrieving the hierarchy for a species:
 
 ```bash
 $ taxo -a 1280
@@ -85,7 +75,7 @@ $ taxo -a 1280
 
 Interactive `taxo` has the same functionality, with the added convenience
 of being able to navigate a pointer up and down the tree, and examine
-ancestors, siblings or descendants in each context.
+ancestors, siblings, or descendants in each context.
 
 ```
 $ ./taxo -i 644

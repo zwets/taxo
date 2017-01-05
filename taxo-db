@@ -405,7 +405,7 @@ done
 if [ -n "$SQL" ]; then # non-interactive 
     echo "$SQL" | sqlite3 -bail -batch -separator '	' "$SQLITE_DB"
 else
-    sqlite3 "$SQLITE_DB"
+    sqlite3 -separator '	' "$SQLITE_DB"
 fi
 
 # vim: sts=4:sw=4:ai:si:et

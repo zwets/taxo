@@ -1,7 +1,7 @@
 #!/bin/sh
 #
 #  taxo-db - SQL serve the taxonomy database
-#  Copyright (C) 2016  Marco van Zwetselaar <io@zwets.it>
+#  Copyright (C) 2017  Marco van Zwetselaar <io@zwets.it>
 #
 #  This program is free software: you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -27,16 +27,18 @@ PRG_NAME="$(basename "$0")"
 # Default location for the SQLite database
 DEFAULT_SQLITE_DB="$HOME/.${PRG_NAME}/taxo.db"
 
-# The location where user can download the taxdump
+# The location of the NCBI taxdump file
 TAXDUMP_URL="ftp://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz"
 
+
 # Database definition -------------------------------------------------------
+#
 # Column descriptions taken from the taxdump readme.txt.
-# Use TEMP tables for non-denormalised tables, denormalise after import.
+# We use TEMP tables for non-normalised tables and decompose after import.
 
 DATABASE_CREATE_SQL='
 
-SELECT "Creating tables ...";
+SELECT "creating tables";
 
 -- File nodes.dmp / tables Nodes and Ranks
 
@@ -172,11 +174,17 @@ CREATE TABLE MergedNodes ( -- old_tax_id that have merged into or renamed to tax
 CREATE INDEX MergedNodesIdx ON MergedNodes (tax_id);
   '
 
-DATABASE_RENORM_SQL='
+# Database decomposition ----------------------------------------------------
+#
+# We normalise rank names to table Ranks, name classes to table NameClass,
+# and move the m:n relation of tax_id on cit_id to a linking table.
+
+DATABASE_NORMALISE_SQL='
   
-SELECT "Normalising Nodes ...";
+SELECT "normalising nodes";
 
 INSERT INTO Ranks (rank_name) SELECT DISTINCT rank as rank_name from NodesTMP;
+UPDATE Ranks SET rank_name = NULL WHERE rank_name = "no rank";
 ALTER TABLE NodesTMP ADD COLUMN rank_id INTEGER;
 UPDATE NodesTMP SET rank_id = (SELECT rank_id FROM Ranks WHERE rank_name = rank);
 INSERT INTO Nodes (tax_id, parent_tax_id, rank_id, embl_code, div_id, div_is_inh, gc_id, gc_is_inh, mito_gc_id, mito_gc_is_inh, is_gb_hidden)
@@ -185,7 +193,7 @@ DROP INDEX RankName1TMP;
 DROP INDEX RankName2TMP;
 DROP TABLE NodesTMP;
 
-SELECT "Normalising Names ...";
+SELECT "normalising names";
 
 INSERT INTO NameClass (name_class_name) SELECT DISTINCT name_class as name_class_name from NamesTMP;
 ALTER TABLE NamesTMP ADD COLUMN name_class_id INTEGER;
@@ -196,23 +204,35 @@ DROP INDEX NameClassName1TMP;
 DROP INDEX NameClassName2TMP;
 DROP TABLE NamesTMP;
 
-SELECT "Normalising Citations ...";
+SELECT "normalising citations";
 
 INSERT INTO Citations SELECT cit_id, cit_key, pubmed_id, medline_id, cit_url, cit_text FROM CitationsTMP;
 DROP TABLE CitationsTMP;
 
-SELECT "Compacting database ...";
+SELECT "compacting database";
 
 VACUUM;
 
-SELECT "Done.";
+SELECT "vacuum done";
   '
 
-DATABASE_VIEWS_SQL='CREATE VIEW SciNamesView (tax_id, rank_name, sci_name, par_id) AS
-  SELECT T.tax_id, CASE R.rank_name WHEN "no rank" THEN "-" ELSE R.rank_name END, N.name, T.parent_tax_id
-  FROM Nodes T NATURAL JOIN Names N NATURAL JOIN NameClass C NATURAL JOIN Ranks R
-  WHERE C.name_class_name = "scientific name";
+# Database views creation ---------------------------------------------------
+#
+# Define common views that flatten the database to a virtual single table
+
+DATABASE_VIEWS_SQL='
+
+CREATE VIEW SciNamesView ( -- for translating between tax_id and scientific name,
+  tax_id,                  -- additionally returns rank name and parent id 
+  rank_name, 
+  sci_name, 
+  parent_id
+  ) AS
+    SELECT T.tax_id, R.rank_name, N.name, T.parent_tax_id
+    FROM Nodes T NATURAL JOIN Names N NATURAL JOIN NameClass C NATURAL JOIN Ranks R
+    WHERE C.name_class_name = "scientific name";
   '
+
 
 # Functions -----------------------------------------------------------------
 
@@ -272,7 +292,7 @@ import_database () {
     emit "create temporary database: $TMP_DBFILE"
     mkdir -p "$(dirname "$TMP_DBFILE")"
 
-    # Run the database creation, import and renormalisation
+    # Run the database creation, import and normalisation
     echo "$DATABASE_CREATE_SQL
     SELECT \"Importing data ...\";
 .separator '\t'
@@ -284,13 +304,13 @@ import_database () {
 .import '$TMP_DIR/merged.dmp' MergedNodes
 .import '$TMP_DIR/citations.dmp' CitationsTMP
 .import '$TMP_DIR/nodes_cites.tab' NodesCitations
-    $DATABASE_RENORM_SQL
+    $DATABASE_NORMALISE_SQL
     $DATABASE_VIEWS_SQL
 " | sqlite3 -batch -bail "$TMP_DBFILE" || {
         clean_up "$TMP_DIR"
         clean_up "$TMP_DBFILE"
         err_exit "no changes, database import failed"
-    }
+    } | while read OUTPUT; do emit "$OUTPUT"; done # 2>&1
 
     # Successful import
     emit "database import successful: $DQLITE_DB"
@@ -303,19 +323,26 @@ usage_exit() {
     echo "
 Usage: $PRG_NAME [OPTIONS] [SQL]
 
-  Run a SQL interpreter on stdin to query the NCBI taxonomy database.
+  Query the taxonomy database using SQL.
 
   Options
-   -d, --db DBFILE       Database file (default: $DEFAULT_SQLITE_DB)
-   -i, --import TAXDUMP  Create or update database from TAXDUMP archive
+   -d, --db DBFILE       Database file (default: $(echo $DEFAULT_SQLITE_DB | sed -e "s,^$HOME,~,"))
+   -i, --import TAXDUMP  Create or update database from TAXDUMP
    -k, --keep            Do not delete temporary files (for debugging)
    -v, --verbose         Show progress messages on stderr
+   -h, --help            Show usage information
 
   This program executes SQL against the taxonomy database DBFILE.  If no
-  SQL argument is present or when it is '-', reads from stdin.
+  SQL argument is present or when it is '-', starts a SQLite interactive
+  session on stdin.
 
-  The database is generated from the NCBI taxdump archive.  To update it,
-  download $TAXDUMP_URL and --import it.
+  To explore the database structure, type '.schema' in interactive mode,
+  which gives a fully annotated definition of the database. Type '.help'
+  for help, and ^D or '.quit' to quit.
+
+  The DBFILE is generated from the NCBI taxdump archive.  To create or
+  update it, download the archive and use --import.  The archive can be
+  got from $TAXDUMP_URL.
 " >&2
     exit ${1:-1}
 }
@@ -360,16 +387,25 @@ while [ $# -ne 0 -a "$(expr "$1" : '\(.\).*')" = "-" ]; do
     shift
 done
 
-# Import taxdump
+# Check arguments
+
+[ $# -lt 2 ] || usage_exit
+[ $# -eq 0 ] || SQL="$1;"   # Add gratuitous terminating semicolon
+
+# Possibly import taxdump
 
 [ -z "$IMPORT_TGZ" ] || import_database "$IMPORT_TGZ" || err_exit "taxdump import failed"
 
+# Check for the SQLite database
+
 [ -f "$SQLITE_DB" ] || err_exit "no database file (use --import or --db): $SQLITE_DB"
 
-if [ -n "$1" ]; then
-    echo "$1" | sqlite3 -separator '	' "$SQLITE_DB"
+# Execute either $SQL against database or start SQLite CLI
+
+if [ -n "$SQL" ]; then # non-interactive 
+    echo "$SQL" | sqlite3 -bail -batch -separator '	' "$SQLITE_DB"
 else
-    sqlite3 -separator '	' "$SQLITE_DB"
+    sqlite3 "$SQLITE_DB"
 fi
 
 # vim: sts=4:sw=4:ai:si:et

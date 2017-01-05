@@ -1,0 +1,197 @@
+#!/bin/sh
+#
+#  taxo-browser - Command line taxonomy browser
+#  Copyright (C) 2017  Marco van Zwetselaar <io@zwets.it>
+#
+#  This program is free software: you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation, either version 3 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+#  Home: http://github.com/zwets/taxo
+
+PRETTY_PRINTFMT='%7d\040%-12s\040%s\n'
+TABSEP_PRINTFMT='%s\t%s\t%s\n'
+
+# Exit this script with an error message on stderr
+err_exit() {
+    echo "$(basename "$0"): $*" >&2
+    exit 1
+}
+
+# Show usage information and exit
+usage_exit() {
+    echo "
+Usage: $(basename $0) [OPTIONS]
+
+  Browse a local copy of the NCBI taxonomy database.
+
+  OPTIONS
+   -q, --quiet        Do not show prompts and other informational output
+   -t, --tabs         Use TAB rather than fancily aligned output
+   -h, --help         This information
+
+  This tool uses at its backend the taxo-db tool which keeps a SQLite3
+  database caching the information from the NCBI taxdump archive.
+" >&2
+    exit ${1:-1}
+}
+
+# Parse options
+
+PRINTFMT="$PRETTY_PRINTFMT"
+QUIET=0
+
+while [ $# -ne 0 -a "$(expr "$1" : '\(.\).*')" = "-" ]; do
+    case $1 in
+    -q|--quiet)
+        QUIET=1
+        ;;
+    -t|--tabs)
+        PRINTFMT="$TABSEP_PRINTFMT"
+        ;;
+    -h|--help)
+        usage_exit 0
+        ;;
+    *) usage_exit
+        ;;
+    esac
+    shift
+done
+
+[ $# -eq 0 ] || usage_exit
+
+# Make temporary dumpfile
+
+TAXO_DB="$(which taxo-db 2>/dev/null)"
+[ -n "$TAXO_DB" ] || TAXO_DB="$(dirname "$0")/taxo-db"
+[ -x "$TAXO_DB" ] || err_exit "cannot find taxo-db"
+
+[ $QUIET -eq 1 ] || echo -n "Loading data ... "
+TMP_FILE="/tmp/$(basename "$0").$$"
+$TAXO_DB "SELECT * FROM SciNamesView;" >"$TMP_FILE"
+
+# Enter interactive mode with awk processing commands
+
+awk -b -O -v QUIET=$QUIET -v TMP_FILE="$TMP_FILE" -e '
+BEGIN { 
+    # Field separator is precisely single TAB
+    FS="\t"
+
+    # Constants to index the TAX[id][x] subarrays
+    IxRank=1 ; IxName=2 ; IxParent=3
+
+    # Load the names and nodes files into the TAX array
+    while (getline <TMP_FILE == 1) { 
+        TAX[$1][IxRank] = $2; TAX[$1][IxName] = $3; TAX[$1][IxParent] = $4;
+        if (NF != 4) { print "NF is", NF; exit; }
+    }
+    close(TMP_FILE)
+    if (!QUIET) print "OK."
+
+    PRT_COUNTER = 0
+    CUR = 1
+    # Start with a prompt
+    prompt()
+}
+
+function prt(i) {
+    printf "'$PRINTFMT'", i, TAX[i][IxRank], TAX[i][IxName]
+    PRT_COUNTER += 1
+}
+function cur() {
+    prt(CUR)
+}
+function jump(new) {
+    if (new in TAX) {
+        CUR = new
+        cur()
+    }
+    else {
+        print "TAXID not found: " new >"/dev/stderr"
+    }
+}
+function up() {
+    if (CUR != 1) CUR=TAX[CUR][IxParent]
+    cur()
+}
+function parent() {
+    if (CUR != 1) prt(TAX[CUR][IxParent])
+}
+function recurse_ancestors(i) {
+    if (i != 1) {
+        recurse_ancestors(TAX[i][IxParent])
+        prt(i)
+    }
+}
+function ancestry() {
+    recurse_ancestors(CUR)
+}
+function children(  i) { # declare i local
+    for (i in TAX) if (TAX[i][IxParent] == CUR && i != 1) prt(i)
+}
+function siblings(  i,p) { # declare i,p local
+    if (CUR != 1) {
+        p = TAX[CUR][IxParent]
+        for (i in TAX) if (TAX[i][IxParent] == p) prt(i)
+    }
+}
+function has_ancestor(i,j,  p) { # declare p local
+    p = TAX[i][IxParent]
+    return i != 1 && (p == j || has_ancestor(p,j))
+}
+function descendants(  i) { # declare i local
+    for (i in TAX) if (i != CUR && has_ancestor(i,CUR)) prt(i)
+}
+function search(regex,  i) { # declare i local
+    # Trim any unintentional trailing /
+    if (substr(regex,length(regex),1) == "/") regex = substr(regex,length(regex)-1)
+    for (i in TAX) if (TAX[i][IxName] ~ regex) prt(i)
+}
+function help() {
+    print "taxo - Navigate the NCBI taxonomy"
+    print
+    print "Commands:"
+    print "-                ENTER key displays current node ID, rank and name"
+    print "- NUMBER         jump to node with taxid NUMBER"
+    print "- /REGEX         search for nodes whose name matches REGEX"
+    print "- u(p)           move current node pointer to parent node"
+    print "- p(arent)       show parent but do not move current node pointer there"
+    print "- a(ncestors)    show lineage of current node all the way up to root"
+    print "- s(iblings)     show all siblings of the current node"
+    print "- c(hildren)     show all children of the current node"
+    print "- D(escendants)  show all descendants of the current node"
+    print "- q(uit) or ^D   leave"
+}
+function prompt() {
+    if (!QUIET && PRT_COUNTER > 10) { print "(" PRT_COUNTER " nodes)" }
+    if (!QUIET) printf "\nCommand? "
+}
+
+# Repeat for every line
+
+{ PRT_COUNTER = 0 }
+/^[h\?](elp)?$/         { help() }
+/^$/                    { cur() }
+/^[0-9]+$/              { jump($0) }
+/^\/.+\/?/              { search(substr($0,2,length($0)-1)) }
+/^up?$/                 { up() }
+/^p(arent)?$/           { parent() }
+/^a(ncest(ry|ors))?$/   { ancestry() }
+/^s(ib(ling)?s)?$/      { siblings() }
+/^c(hildren)?$/         { children() }
+/^D(escendants)?$/      { descendants() }
+/^q(uit)?$/             { if (!QUIET) print "Bye"; exit 0 }
+{ prompt() }'
+
+rm -f "$TMP_FILE"
+
+# vim: sts=4:sw=4:ai:si:et

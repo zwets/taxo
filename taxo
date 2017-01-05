@@ -1,7 +1,7 @@
 #!/bin/sh
 #
-#  taxo - Command line taxonomy browser
-#  Copyright (C) 2016  Marco van Zwetselaar <io@zwets.it>
+#  taxo - Query the taxonomy database
+#  Copyright (C) 2017  Marco van Zwetselaar <io@zwets.it>
 #
 #  This program is free software: you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -18,27 +18,12 @@
 #
 #  Home: http://github.com/zwets/taxo
 
-PRETTY_PRINTFMT='%7d\040%-12s\040%s\n'
-TABSEP_PRINTFMT='%s\t%s\t%s\n'
-PRINTFMT="$PRETTY_PRINTFMT"	# Switched to TABSEP if option --tabs is given
-
 # Lookup the scientific name for numeric TAXID
 taxid_sciname() {
     taxo-db "SELECT name FROM Names JOIN NameClass USING (name_class_id)
              WHERE tax_id = $1 AND name_class_name = 'scientific name';"
 }
 
-# Convenience function to pick $1-th field from tab-separated string $2
-field () {
-    local NTH=$1
-    if [ -n "$2" ]; then
-        echo "$2" | cut -f $NTH
-    else
-        cut -f $NTH
-    fi
-}
-
-# Print tax ID, rank and name, optionally recursing over parents first
 # Args: $1=TAXID [$2=anything]; when $2 is present, recurse upward to print all ancestors
 lookup_taxid() {
     local NODE_LINE="$(taxo-db "SELECT * FROM SciNamesView WHERE tax_id = $1;")"
@@ -50,18 +35,6 @@ lookup_taxid() {
     printf "$PRINTFMT" "$1" "$(field 2 "$NODE_LINE")" "$(field 3 "$NODE_LINE")"
 }
 
-# Grep for regex NAME, through the NAMES file, output tax ID and scientific name
-# Args: $1=REGEX
-search_name() {
-    # Fix the regex: starting ^ becomes tab because it is in column 3
-    local REGEX="$(echo "$1" | sed -e 's/^^/\t/')"
-    taxo-db "SELECT tax_id, rank_name, sci_name FROM SciNamesView;" | 
-        grep "$REGEX" |
-        while read TAX RANK NAME; do 
-            printf "$PRINTFMT" "$TAX" "$RANK" "$NAME"
-        done
-}
-
 # Exit this script with an error message on stderr
 err_exit() {
     echo "$(basename "$0"): $*" >&2
@@ -71,69 +44,29 @@ err_exit() {
 # Show usage information and exit
 usage_exit() {
     echo "
-Usage: $(basename $0) [OPTIONS] [TAXID|NAME|-] ...
+Usage: $(basename $0) [OPTIONS] TAXID|NAME|- ... 
 
-  Search and/or browse a local copy of the NCBI taxonomy database.
+  Retrieve taxonomy information from a local copy of the taxonomy database.
 
-  Lookup each numeric TAXID in the NCBI taxonomy and print its scientific name
-  and rank.  Search for each left-anchored regex NAME in the NCBI taxonomy and
-  print the taxid and scientific name of every matching entry.
-
-  Without arguments or when option -i|--interactive is given, after processing
-  the arguments, enter interactive mode.  Interactive mode allows browsing up,
-  down and sideways through the taxonomy hierarchy using a few simple commands.
-  Use -q|--quiet to suppress prompts and other informational output in 
-  interactive mode, thus making it suitable for application as a pipe. 
+  Lookup the taxon for each numeric TAXID.  For each non-numeric NAME, find
+  all taxons whose scientific names contain NAME in part or in whole.  When
+  the argument is '-' read TAXIDs and NAMEs from stdin.
 
   Options
-   -a, --ancestry     In non-interactive mode, for every TAXID output taxonomic
-                      ancestry (like pressing 'a' in interactive mode)
-   -i, --interactive  Enter interactive mode after processing all arguments
-   -q, --quiet        Do not show prompts and other informational output
-   -t, --tabs         Use TAB rather than fancily aligned output
-   -d, --dir DIR      Directory path to the NCBI taxdump files (see below)
-   -h, --help         This
+   -h, --help         This information
 
-  When searching on regex NAME, it is anchored on the left as if '^' were
-  stuck on just before the search.  Prefix '.*' to search anywhere in the name.
-  To anchor the right side too, use the usual '$'.  For instance, 'Bacteria$'
-  searches for the exact name 'Bacteria'.
-
-  This tool requires the nodes.dmp and names.dmp files from the NCBI taxdump
-  archive (ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz).  Unpack the
-  archive and either run this tool in the directory with the dmp-files, set
-  environment variable NCBI_TAXDUMP_DIR or use option -d|--dir.
+  This tool uses at its backend the taxo-db tool.  See 'taxo-db --help'.
 " >&2
     exit ${1:-1}
 }
 
 # Parse options
 
-unset TAX_DIR ANCESTRY INTERACTIVE 
-PRINTFMT="$PRETTY_PRINTFMT"
-QUIET=0
-
-while [ $# -ne 0 -a "$(expr "$1" : '\(.\).*')" = "-" ]; do
+EXTENDED=0
+while [ $# -ne 0 -a "$(expr "$1" : '\(.\)..*')" = "-" ]; do
     case $1 in
-    -a|--ancestry)
-        ANCESTRY="yes"
-        ;;
-    -i|--interactive)
-        INTERACTIVE="yes"
-        ;;
-    -q|--quiet)
-        QUIET=1
-        ;;
-    -t|--tabs)
-        PRINTFMT="$TABSEP_PRINTFMT"
-        ;;
-    -d|--dir)
-        shift
-        [ $# -ge 1 ] || usage_exit
-        TAX_DIR="$1"
-        ;;
-    --dir=*)
-        TAX_DIR="${1#--dir}"
+    -x|--extended)
+        EXTENDED=1
         ;;
     -h|--help)
         usage_exit 0
@@ -144,147 +77,43 @@ while [ $# -ne 0 -a "$(expr "$1" : '\(.\).*')" = "-" ]; do
     shift
 done
 
-# If there are no arguments then always interactive mode
+# Check arguments
 
-[ $# -ne 0 ] || INTERACTIVE="yes"
+[ $# -ne 0 ] || usage_exit
 
-# If there are arguments and no --interactive flag then do 'quick service' using grep, 
-# else delegate the arguments to interactive mode.
+# Locate the taxo-db backend
 
-if [ $# -ne 0 -a -z "$INTERACTIVE" ]; then
-    while [ $# -ne 0 ]; do    # check whether argument is numeric TAXID or REGEX.
-        if [ "$(expr "$1" : '\([1-9][0-9]*\)')" = "$1" ]; then
-            lookup_taxid "$1" $ANCESTRY
-        else # Regex NAME
-            search_name "$1"
-        fi
+TAXO_DB="$(which taxo-db 2>/dev/null)"
+[ -n "$TAXO_DB" ] || TAXO_DB="$(dirname "$0")/taxo-db"
+[ -x "$TAXO_DB" ] || err_exit "cannot find taxo-db"
+
+# Parse arguments, piping them into taxo-db
+
+if [ "$1" = "-" ]; then
+    cat
+else
+    while [ $# -ne 0 ]; do
+        echo "$1"
         shift
     done
-fi
-
-# We are done unless interactive mode must be entered
-
-[ -n "$INTERACTIVE" ] || exit 0
-
-# Enter interactive mode, passing the remaining arguments to the awk script
-
-awk -b -O -v NMS_FILE="$NAMES_DMP" -v NDS_FILE="$NODES_DMP" -v QUIET=$QUIET -v ANCESTRY="$ANCESTRY" -v ARGS="$*" '
-BEGIN { 
-    # Constants to index the TAX[id][x] subarrays
-    IxName=1 ; IxParent=2 ; IxRank=3
-
-    # Load the names and nodes files into the TAX array
-    if (!QUIET) printf "Loading names ... "
-    while (getline <NMS_FILE == 1) if ($4 == "scientific name") TAX[$1][IxName] = $2; close(NMS_FILE)
-    if (!QUIET) printf "OK.\nLoading nodes ... "
-    while (getline <NDS_FILE == 1) { TAX[$1][IxParent] = $2; TAX[$1][IxRank] = $3 } close(NDS_FILE)
-    if (!QUIET) print "OK."
-
-    # Reset the field separators to normal and set CUR to root of hierarchy (1)
-    FS=" " ; RS="\n" ; CUR=1
-
-    # Process any command line arguments as if they were entered in interactive mode
-    split (ARGS, ARGS_ARR)
-    for (i in ARGS_ARR) {
-        if (ARGS_ARR[i] ~ /^[1-9][0-9]*$/) {    # numeric TAXID
-            CUR = ARGS_ARR[i]
-            ANCESTRY ? ancestry() : cur();
-        } else { # textual regex NAME
-            search(ARGS_ARR[i])
-        }
-    }
-
-    # Start with a prompt
-    prompt()
+fi | awk -b -O -v EXTENDED="$EXTENDED" -v TAXO_DB="$TAXO_DB" -e '
+BEGIN {
+    FS="\t"
 }
-
-function prt(i) 
-    printf "'$PRINTFMT'", i, (TAX[i][IxRank] == "no rank" ? "" : TAX[i][IxRank]), TAX[i][IxName]
-    PRT_COUNTER += 1
+END {
+    close(TAXO_DB)
 }
-function cur() {
-    prt(CUR)
+function find_taxon(tax_id) {
+    printf "SELECT tax_id, rank_name, sci_name FROM SciNamesView WHERE tax_id = %d;\n", tax_id | TAXO_DB
 }
-function jump(new) {
-    if (new in TAX) {
-        CUR = new
-        cur()
-    }
-    else {
-        print "TAXID not found: " new >"/dev/stderr"
-    }
+function search_name(name) {
+    if (!EXTENDED)
+        printf "SELECT tax_id, rank_name, sci_name FROM SciNamesView WHERE sci_name LIKE \"%%%s%%\";\n", name | TAXO_DB
+    else
+        printf "SELECT * FROM Names NATURAL JOIN NameClass WHERE name LIKE \"%%%s%%\" ORDER BY tax_id;\n", name | TAXO_DB
 }
-function up() {
-    if (CUR != 1) CUR=TAX[CUR][IxParent]
-    cur()
-}
-function parent() {
-    if (CUR != 1) prt(TAX[CUR][IxParent])
-}
-function recurse_ancestors(i) {
-    if (i != 1) {
-        recurse_ancestors(TAX[i][IxParent])
-        prt(i)
-    }
-}
-function ancestry() {
-    recurse_ancestors(CUR)
-}
-function children() {
-    for (i in TAX) if (TAX[i][IxParent] == CUR && i != 1) prt(i)
-}
-function siblings() {
-    if (CUR != 1) {
-        cur_par = TAX[CUR][IxParent]
-        for (i in TAX) if (TAX[i][IxParent] == cur_par) prt(i)
-    }
-}
-function has_ancestor(i,j) {
-    p = TAX[i][IxParent]
-    return i != 1 && (p == j || has_ancestor(p,j))
-}
-function descendants() {
-    for (i in TAX) if (i != CUR && has_ancestor(i,CUR)) prt(i)
-}
-function search(regex) {
-    # Trim the unintentional trailing /
-    if (substr(regex,length(regex),1) == "/") regex = substr(regex,length(regex)-1)
-    for (i in TAX) if (TAX[i][IxName] ~ regex) prt(i)
-}
-function help() {
-    print "taxo - Navigate the NCBI taxonomy"
-    print
-    print "Commands:"
-    print "-                ENTER key displays current node ID, rank and name"
-    print "- NUMBER         jump to node with taxid NUMBER"
-    print "- /REGEX         search for nodes whose name matches left-anchored REGEX"
-    print "- u(p)           move current node pointer to parent node"
-    print "- p(arent)       show parent but do not move current node pointer there"
-    print "- a(ncestors)    show lineage of current node all the way up to root"
-    print "- s(iblings)     show all siblings of the current node"
-    print "- c(hildren)     show all children of the current node"
-    print "- D(escendants)  show all descendants of the current node"
-    print "- q(uit) or ^D   leave"
-}
-function prompt() {
-    if (!QUIET && PRT_COUNTER > 10) { print "(" PRT_COUNTER " nodes)" }
-    if (!QUIET) printf "\nCommand? "
-}
-
-# Repeat for every line
-
-{ PRT_COUNTER = 0 }
-/^[h\?](elp)?$/         { help() }
-/^$/                    { cur() }
-/^[0-9]+$/              { jump($0) }
-/^\/.+\/?/              { search(substr($0,2,length($0)-1)) }
-/^up?$/                 { up() }
-/^p(arent)?$/           { parent() }
-/^a(ncest(ry|ors))?$/   { ancestry() }
-/^s(ib(ling)?s)?$/      { siblings() }
-/^c(hildren)?$/         { children() }
-/^D(escendants)?$/      { descendants() }
-/^q(uit)?$/             { if (!QUIET) print "Bye"; exit 0 }
-{ prompt() }'
+/^ *[0-9]+$/   { find_taxon($0) }
+/^ *[^0-9]/    { search_name($0) }
+'
 
 # vim: sts=4:sw=4:ai:si:et

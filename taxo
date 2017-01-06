@@ -53,7 +53,8 @@ Usage: $(basename $0) [OPTIONS] TAXID|NAME|- ...
   the argument is '-' read TAXIDs and NAMEs from stdin.
 
   Options
-   -h, --help         This information
+   -x, --extended  Perform extended name search and produce extended output
+   -h, --help      This information
 
   This tool uses at its backend the taxo-db tool.  See 'taxo-db --help'.
 " >&2
@@ -104,7 +105,10 @@ END {
     close(TAXO_DB)
 }
 function find_taxon(tax_id) {
-    printf "SELECT tax_id, rank_name, sci_name FROM SciNamesView WHERE tax_id = %d;\n", tax_id | TAXO_DB
+    if (!EXTENDED)
+        printf "SELECT tax_id, rank_name, sci_name FROM SciNamesView WHERE tax_id = %d;\n", tax_id | TAXO_DB
+    else
+        printf "SELECT * FROM Nodes NATURAL JOIN Names NATURAL JOIN NameClass NATURAL JOIN Ranks NATURAL JOIN Citations WHERE name_class_name = \"scientific name\" AND tax_id = %d;\n", tax_id | TAXO_DB
 }
 function search_name(name) {
     if (!EXTENDED)

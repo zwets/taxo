@@ -4,13 +4,13 @@ _Command line NCBI/ENA taxonomy browser_
 
 ## Introduction
 
-`taxo` is a command line utility to query or navigate a local copy of the NCBI
-taxonomy database.  It can look up taxons by their NCBI/ENA taxonomy identifier,
-or do a regex search through their scientific names.  It can also interactively
-navigate the taxonomy.
+`taxo` is a command line utility to query a local copy of the NCBI taxonomy
+database.  It can look up taxons by their NCBI/ENA taxonomy identifier,
+search by name, etc.  `taxo-browser` is `taxo`'s interactive variant,
+allowing you to browse the taxonomy hierarchy from the command line.
 
-`taxo` uses `taxo-db` as its back-end.  `taxo-db` imports the 
-[NCBI taxdump archive](ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz)
+`taxo` and `taxo-browser` use `taxo-db` as their back-end.  `taxo-db`
+imports the [NCBI taxdump archive](ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz)
 into a SQLite3 database and provides a SQL command interface to the database.
 
 ### Why offline?
@@ -27,26 +27,34 @@ Home: <https://github.com/zwets/taxo> (previously part of
 
 ## Examples
 
-### Non-interactive Use
+### Command-line queries
 
-Searching on taxonomic name or regular expression:
+Searching on taxonomic name
 
 ```bash
 $ taxo Zika
-64320   Zika virus
-395648  Zikanapis
-395833  Zikanapis clypeata
+64320   species Zika virus
+186278  species Cottus kazika
+...
+1756945 species Henneguya zikaweiensis
+1879016 species Zika virus vector pZIKV-ICD
 ```
 
+Regular expression search
+
 ```bash
-$ taxo '.*monas$'
-85      Hyphomonas
-226     Alteromonas
-283     Comamonas
-...	...
-1677989 Palustrimonas
-1701761 Thiobacimonas
-1709445 Candidatus Heliomonas
+$ taxo -r '.*monas$'
+85      genus   Hyphomonas
+226     genus   Alteromonas
+283     genus   Comamonas
+...
+```
+
+Also search the alternative (non-scientific) names:
+
+```bash
+$ taxo -a hydrophilia'
+644     species Aeromonas hydrophilia   misspelling
 ```
 
 Looking up on taxid:
@@ -57,31 +65,31 @@ $ taxo 286 666
     666 species      Vibrio cholerae
 ```
 
-Retrieving the hierarchy for a species:
+Retrieve citations
 
 ```bash
-$ taxo -a 1280
- 131567              cellular organisms
-      2 superkingdom Bacteria
-   1239 phylum       Firmicutes
-  91061 class        Bacilli
-   1385 order        Bacillales
-  90964 family       Staphylococcaceae
-   1279 genus        Staphylococcus
-   1280 species      Staphylococcus aureus
+$ taxo -c 666
+666     species Vibrio cholerae 2759    Skerman VBD et al. (1980)  ...
+666     species Vibrio cholerae 3356    Lapage SP et al. (1992) ...
+666     species Vibrio cholerae 9485    Nandi S et al. (1997) ...
 ```
+
+Retrieve lots of informations
+
+```bash
+$ taxo -x 777
+... wide tab separated datasheet ...
+```
+
 
 ### Interactive Use
 
-Interactive `taxo` has the same functionality, with the added convenience
-of being able to navigate a pointer up and down the tree, and examine
-ancestors, siblings, or descendants in each context.
+The interactive `taxo-browser` has the same functionality, with the
+added convenience of being able to navigate a pointer up and down the
+tree, and examine ancestors, siblings, or descendants in each context.
 
 ```
-$ ./taxo -i 644
-Loading names ... OK.
-Loading nodes ... OK.
-    644 species      Aeromonas hydrophila
+$ taxo-browser
 
 Command? help
 
@@ -97,11 +105,8 @@ Commands:
 - D(escendants)  show all descendants of the current node
 - q(uit) or ^D   leave
 
-Command? u
-    642 genus        Aeromonas
-
-Command? u
-  84642 family       Aeromonadaceae
+Command? /Acinetobacter baumannii$
+    470 species      Acinetobacter baumannii
 
 Command? 1279
    1279 genus        Staphylococcus

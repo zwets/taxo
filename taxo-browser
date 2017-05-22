@@ -39,6 +39,8 @@ Usage: $(basename $0) [OPTIONS]
    -q, --quiet  Do not show prompts and other informational output
    -h, --help   This information
 
+  For instructions, type '?' at the taxo-browser command prompt.
+
   This tool uses at its backend the taxo-db tool which keeps a SQLite3
   database caching the information from the NCBI taxdump archive.
 " >&2
@@ -75,19 +77,25 @@ TAXO_DB="$(which taxo-db 2>/dev/null)"
 [ -n "$TAXO_DB" ] || TAXO_DB="$(dirname "$0")/taxo-db"
 [ -x "$TAXO_DB" ] || err_exit "cannot find taxo-db"
 
+# Check whether the taxo-db backend can do regexp search
+
+NO_REGEXP=0
+$TAXO_DB -r </dev/null >/dev/null 2>&1 || NO_REGEXP=1
+
 # Enter interactive mode with awk processing commands.
 # Note that the SELECT statements to taxo-db all terminate with "SELECT 0".
 # We need this "Done" marker because without output rows, getline blocks.
-
-awk -b -O -v QUIET=$QUIET -v TAXO_DB="$TAXO_DB" -e '
+awk -b -O -v QUIET=$QUIET -v TAXO_DB="$TAXO_DB" -v NO_REGEXP="$NO_REGEXP" -e '
 BEGIN { 
     FS="\t"
     CUR = 1
+    if (!NO_REGEXP) TAXO_RE = TAXO_DB " -r"
     prompt()
 }
 END {
     if (!QUIET) print "Bye."
     close(TAXO_DB)
+    close(TAXO_RE)
 }
 function print_rows() {
     TAXO_DB |& getline 
@@ -163,14 +171,17 @@ function like_search(l) {
     printf "SELECT tax_id, rank_name, sci_name FROM SciNamesView WHERE sci_name LIKE \"%%%s%%\" AND tax_id != 1; SELECT 0;\n", l |& TAXO_DB
     print_rows()
 }
-# Inefficient regex: we query all because there is no REGEXP search in SQLite (is an extension)
 function regex_search(r) {
-    if (substr(r,length(r),1) == "/") r = substr(r,length(r)-1)  # Trim accidental "/" from end
-    printf "SELECT tax_id, rank_name, sci_name FROM SciNamesView WHERE tax_id != 1; SELECT 0;\n" |& TAXO_DB
-    TAXO_DB |& getline
-    while ($1 != 0) {
-        if ($3 ~ r) printf "'$PRINTFMT'", $1, $2, $3
-        TAXO_DB |& getline
+    if (NO_REGEXP) {
+        printf "Regular expression search unavailable, SQLite3 lacks the REGEXP extension"
+    }
+    else {
+        printf "SELECT tax_id, rank_name, sci_name FROM SciNamesView WHERE sci_name REGEXP \"%s\" AND tax_id != 1; SELECT 0;\n", r |& TAXO_RE
+        TAXO_RE |& getline 
+        while ($1 != 0) {
+            printf "'$PRINTFMT'", $1, $2, $3
+            TAXO_RE |& getline
+        }
     }
 }
 function help() {

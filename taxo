@@ -48,26 +48,44 @@ Usage: $(basename $0) [OPTIONS] TAXID|NAME|- ...
 
   Retrieve taxonomy information from a local copy of the taxonomy database.
 
-  Lookup the taxon for each numeric TAXID.  For each non-numeric NAME, find
-  all taxons whose scientific names contain NAME in part or in whole.  When
-  the argument is '-' read TAXIDs and NAMEs from stdin.
+  For each numeric TAXID lookup the taxon.  For each (non-numeric) NAME, find
+  all taxons whose scientific name contains NAME.
 
-  Options
-   -x, --extended  Perform extended name search and produce extended output
-   -h, --help      This information
+  OPTIONS
+   -e, --exact      Search for the exact NAME (default is match anywhere)
+   -r, --regex      Search for the regular expression NAME (excludes -e)
+   -a, --any-name   Search in all name classes (synonyms, misspellings, etc)
+   -x, --extended   Output extended information for each match
+   -c, --citations  Output citations for each match
+   -h, --help       This information
 
   This tool uses at its backend the taxo-db tool.  See 'taxo-db --help'.
+
+  Note that the --regex option requires the REGEXP extension to SQLite3.
+  On Ubuntu this extension is in package sqlite3-pcre.
 " >&2
     exit ${1:-1}
 }
 
 # Parse options
 
-EXTENDED=0
+unset OPT_E OPT_R OPT_A OPT_X OPT_C
 while [ $# -ne 0 -a "$(expr "$1" : '\(.\)..*')" = "-" ]; do
     case $1 in
+    -e|--exact)
+        OPT_E=1
+        ;;
+    -r|--regexp)
+        OPT_R=1
+        ;;
+    -a|--any-name)
+        OPT_A=1
+        ;;
     -x|--extended)
-        EXTENDED=1
+        OPT_X=1
+        ;;
+    -c|--citations)
+        OPT_C=1
         ;;
     -h|--help)
         usage_exit 0
@@ -97,27 +115,45 @@ else
         echo "$1"
         shift
     done
-fi | awk -b -O -v EXTENDED="$EXTENDED" -v TAXO_DB="$TAXO_DB" -e '
+fi | awk -b -O -v EXACT="${OPT_E:-0}" -v EXTENDED="${OPT_X:-0}" -v REGEXP="${OPT_R:-0}" -v CITATIONS="${OPT_C:-0}" -v ALL_NAMES="${OPT_A:-0}" -v TAXO_DB="$TAXO_DB" -e '
 BEGIN {
+    if (REGEXP) TAXO_DB = TAXO_DB " -r"
     FS="\t"
 }
 END {
     close(TAXO_DB)
 }
 function find_taxon(tax_id) {
-    if (!EXTENDED)
-        printf "SELECT tax_id, rank_name, sci_name FROM SciNamesView WHERE tax_id = %d;\n", tax_id | TAXO_DB
-    else
-        printf "SELECT * FROM Nodes NATURAL JOIN Names NATURAL JOIN NameClass NATURAL JOIN Ranks NATURAL JOIN Citations WHERE name_class_name = \"scientific name\" AND tax_id = %d;\n", tax_id | TAXO_DB
+    if (!EXTENDED) {
+        sql = "SELECT tax_id, rank_name, " (ALL_NAMES ? "name, name_class_name" : "sci_name") (CITATIONS ? ", Citations.*" : "")
+        sql = sql " FROM " (ALL_NAMES ? "All" : "Sci") "NamesView"
+    }
+    else {
+        sql = "SELECT * FROM Nodes NATURAL JOIN Names NATURAL JOIN NameClass NATURAL JOIN Ranks "
+    }
+    if (CITATIONS) sql = sql " NATURAL JOIN NodesCitations NATURAL JOIN Citations "
+    printf "%s WHERE tax_id = %d;\n", sql, tax_id | TAXO_DB
+
 }
-function search_name(name) {
-    if (!EXTENDED)
-        printf "SELECT tax_id, rank_name, sci_name FROM SciNamesView WHERE sci_name LIKE \"%%%s%%\";\n", name | TAXO_DB
-    else
-        printf "SELECT * FROM Names NATURAL JOIN NameClass WHERE name LIKE \"%%%s%%\" ORDER BY tax_id;\n", name | TAXO_DB
+function search_name(comparator) {
+    if (!EXTENDED) {
+        sql = "SELECT tax_id, rank_name, " (ALL_NAMES ? "name, name_class_name" : "sci_name") (CITATIONS ? ", Citations.*" : "")
+        sql = sql " FROM " (ALL_NAMES ? "All" : "Sci") "NamesView"
+        if (CITATIONS) sql = sql " NATURAL JOIN NodesCitations NATURAL JOIN Citations "
+        sql = sql " WHERE "
+        sql = sql (ALL_NAMES ? "name" : "sci_name")
+    }
+    else {
+        sql = "SELECT * FROM Names NATURAL JOIN NameClass "
+        if (CITATIONS) sql = sql " NATURAL JOIN NodesCitations NATURAL JOIN Citations "
+        sql = sql " WHERE "
+        if (!ALL_NAMES) sql = sql " name_class_name = \"scientific name\" AND "
+        sql = sql " name "
+    }
+    printf "%s %s ORDER BY tax_id;\n", sql, comparator | TAXO_DB
 }
 /^ *[0-9]+$/   { find_taxon($0) }
-/^ *[^0-9]/    { search_name($0) }
+/^ *[^0-9]/    { search_name(REGEXP ? " REGEXP \"" $0 "\"" : EXACT ? " = \"" $0 "\"" : " LIKE \"%" $0 "%\"") }
 '
 
 # vim: sts=4:sw=4:ai:si:et

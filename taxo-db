@@ -231,6 +231,16 @@ CREATE VIEW SciNamesView ( -- for translating between tax_id and scientific name
     SELECT T.tax_id, R.rank_name, N.name, T.parent_tax_id
     FROM Nodes T NATURAL JOIN Names N NATURAL JOIN NameClass C NATURAL JOIN Ranks R
     WHERE C.name_class_name = "scientific name";
+
+CREATE VIEW AllNamesView ( -- for searching on all names
+  tax_id,
+  rank_name,
+  name,
+  name_class_name,
+  parent_id
+  ) AS
+    SELECT T.tax_id, R.rank_name, N.name, C.name_class_name, T.parent_tax_id
+    FROM Nodes T NATURAL JOIN Names N NATURAL JOIN NameClass C NATURAL JOIN Ranks R;
   '
 
 
@@ -329,6 +339,7 @@ Usage: $PRG_NAME [OPTIONS] [SQL]
    -d, --db DBFILE       Database file (default: $(echo $DEFAULT_SQLITE_DB | sed -e "s,^$HOME,~,"))
    -i, --import TAXDUMP  Create or update database from TAXDUMP
    -k, --keep            Do not delete temporary files (for debugging)
+   -r, --regexp          Enable REGEXP extension, or exit with error
    -v, --verbose         Show progress messages on stderr
    -h, --help            Show usage information
 
@@ -343,6 +354,9 @@ Usage: $PRG_NAME [OPTIONS] [SQL]
   The DBFILE is generated from the NCBI taxdump archive.  To create or
   update it, download the archive and use --import.  The archive can be
   got from $TAXDUMP_URL.
+
+  For REGEXP search to work, you may need to install a SQLite3 extension.
+  On Ubuntu this extension is available in package sqlite3-pcre.
 " >&2
     exit ${1:-1}
 }
@@ -375,6 +389,9 @@ while [ $# -ne 0 -a "$(expr "$1" : '\(.\).*')" = "-" ]; do
     -k|--keep)
         KEEP=1
         ;;
+    -r|--regex*)
+        ENABLE_REGEXP=1
+        ;;
     -v|--verbose)
         VERBOSE=1
         ;;
@@ -400,12 +417,22 @@ done
 
 [ -f "$SQLITE_DB" ] || err_exit "no database file (use --import or --db): $SQLITE_DB"
 
+# Check for the REGEXP extension, when option present
+
+if [ -n "$ENABLE_REGEXP" ] && ! printf "SELECT 1 REGEXP 1;" | sqlite3 -bail -batch >/dev/null 2>&1; then
+    if [ -f "/usr/lib/sqlite3/pcre.so" ]; then
+        LOAD_STMT='.load /usr/lib/sqlite3/pcre.so'
+    else
+        err_exit "cannot do REGEXP search, SQLite3 lacks the required extension"
+    fi
+fi
+
 # Execute either $SQL against database or start SQLite CLI
 
 if [ -n "$SQL" ]; then # non-interactive 
-    echo "$SQL" | sqlite3 -bail -batch -separator '	' "$SQLITE_DB"
+    printf "${SQL}" | sqlite3 -cmd "$LOAD_STMT" -bail -batch -separator '	' "$SQLITE_DB"
 else
-    sqlite3 -separator '	' "$SQLITE_DB"
+    sqlite3 -cmd "$LOAD_STMT" -separator '	' "$SQLITE_DB"
 fi
 
 # vim: sts=4:sw=4:ai:si:et

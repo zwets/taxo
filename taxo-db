@@ -184,9 +184,9 @@ DATABASE_NORMALISE_SQL='
 SELECT "normalising nodes";
 
 INSERT INTO Ranks (rank_name) SELECT DISTINCT rank as rank_name from NodesTMP;
-UPDATE Ranks SET rank_name = NULL WHERE rank_name = "no rank";
 ALTER TABLE NodesTMP ADD COLUMN rank_id INTEGER;
 UPDATE NodesTMP SET rank_id = (SELECT rank_id FROM Ranks WHERE rank_name = rank);
+UPDATE Ranks SET rank_name = NULL WHERE rank_name = "no rank";
 INSERT INTO Nodes (tax_id, parent_tax_id, rank_id, embl_code, div_id, div_is_inh, gc_id, gc_is_inh, mito_gc_id, mito_gc_is_inh, is_gb_hidden)
        SELECT tax_id, parent_tax_id, rank_id, embl_code, div_id, div_is_inh, gc_id, gc_is_inh, mito_gc_id, mito_gc_is_inh, is_gb_hidden FROM NodesTMP;
 DROP INDEX RankName1TMP;
@@ -290,7 +290,7 @@ import_database () {
 
     # Recode the field separators to single tabs, and escape unescaped double quotes
     # Note: the citation file has a rather unsanitised cit_text field; it should
-    # escape double quote, tab, newline and backslash, but doesn't alwasy.
+    # escape double quote, tab, newline and backslash, but does not always.
     for F in nodes names division gencode citations delnodes merged; do
         local FILE="$TMP_DIR/$F.dmp"
         emit "preparing for import: $FILE"

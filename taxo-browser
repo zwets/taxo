@@ -90,6 +90,7 @@ BEGIN {
     FS="\t"
     CUR = 1
     if (!NO_REGEXP) TAXO_RE = TAXO_DB " -r"
+    if (!QUIET) print "Welcome to taxo-browser.  Press 'h' for help or 'q' to quit."
     prompt()
 }
 END {

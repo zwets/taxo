@@ -44,12 +44,14 @@ err_exit() {
 # Show usage information and exit
 usage_exit() {
     echo "
-Usage: $(basename $0) [OPTIONS] TAXID|NAME|- ... 
+Usage: $(basename $0) [OPTIONS] [TAXID|NAME|- ...]
 
   Retrieve taxonomy information from a local copy of the taxonomy database.
 
   For each numeric TAXID lookup the taxon.  For each (non-numeric) NAME, find
-  all taxons whose scientific name contains NAME.
+  all taxons whose scientific name contains NAME.  When argument is '-', read
+  taxons and names from standard input.  When no arguments are given, switch
+  to interactive mode (taxo-browser).
 
   OPTIONS
    -e, --exact      Search for the exact NAME (default is match anywhere)
@@ -72,33 +74,20 @@ Usage: $(basename $0) [OPTIONS] TAXID|NAME|- ...
 unset OPT_E OPT_R OPT_A OPT_X OPT_C
 while [ $# -ne 0 -a "$(expr "$1" : '\(.\)..*')" = "-" ]; do
     case $1 in
-    -e|--exact)
-        OPT_E=1
-        ;;
-    -r|--regexp)
-        OPT_R=1
-        ;;
-    -a|--any-name)
-        OPT_A=1
-        ;;
-    -x|--extended)
-        OPT_X=1
-        ;;
-    -c|--citations)
-        OPT_C=1
-        ;;
-    -h|--help)
-        usage_exit 0
-        ;;
-    *) usage_exit
-        ;;
+    -e|--exact)     OPT_E=1 ;;
+    -r|--regexp)    OPT_R=1 ;;
+    -a|--any*)      OPT_A=1 ;;
+    -x|--ext*)      OPT_X=1 ;;
+    -c|--cit*)      OPT_C=1 ;;
+    -h|--help)      usage_exit 0 ;;
+    *)              usage_exit   ;;
     esac
     shift
 done
 
-# Check arguments
+# If no arguments given, switch to taxo-browser
 
-[ $# -ne 0 ] || usage_exit
+[ $# -ne 0 ] || exec "$(dirname "$0")/taxo-browser"
 
 # Locate the taxo-db backend
 

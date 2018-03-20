@@ -274,7 +274,7 @@ clean_up () {
 import_database () {
 
     # Check existence of taxdump to import
-    [ -n "$1" -a -f "$1" ] || err_exit "no such file: $1"
+    [ "$1" = "-" ] || [ -n "$1" -a -f "$1" ] || err_exit "no such file: $1"
 
     # Create working directory and unpack the taxdump
     local TMP_DIR="/tmp/${PRG_NAME}.$$"
@@ -323,7 +323,7 @@ import_database () {
     } | while read OUTPUT; do emit "$OUTPUT"; done # 2>&1
 
     # Successful import
-    emit "database import successful: $DQLITE_DB"
+    emit "database import successful: $SQLITE_DB"
     clean_up "$TMP_DIR"
     mv -f "$TMP_DBFILE" "$SQLITE_DB"
 }
@@ -337,7 +337,7 @@ Usage: $PRG_NAME [OPTIONS] [SQL]
 
   Options
    -d, --db DBFILE       Database file (default: $(echo $DEFAULT_SQLITE_DB | sed -e "s,^$HOME,~,"))
-   -i, --import TAXDUMP  Create or update database from TAXDUMP
+   -i, --import TAXDUMP  Create or update database from TAXDUMP (may be '-')
    -k, --keep            Do not delete temporary files (for debugging)
    -r, --regexp          Enable REGEXP extension, or exit with error
    -v, --verbose         Show progress messages on stderr
@@ -411,7 +411,11 @@ done
 
 # Possibly import taxdump
 
-[ -z "$IMPORT_TGZ" ] || import_database "$IMPORT_TGZ" || err_exit "taxdump import failed"
+if [ -n "$IMPORT_TGZ" ]; then
+    import_database "$IMPORT_TGZ" || err_exit "taxdump import failed"
+    echo "$(basename "$0"): database imported"
+    exit 0
+fi
 
 # Check for the SQLite database
 

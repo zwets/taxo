@@ -5,21 +5,23 @@ _Command line NCBI/ENA taxonomy browser_
 ## Introduction
 
 `taxo` is a command line utility to query a local copy of the NCBI taxonomy
-database.  It can look up taxons by their NCBI/ENA taxonomy identifier,
-search by name, etc.  It can also operate interactively (`taxo-browser`),
-allowing you to browse the taxonomy hierarchy from the command line.
+database.  It can look up taxons by their NCBI/ENA taxonomy identifier, name,
+regex, and so on.  It can present various sets of information for the taxon.
 
-`taxo` and `taxo-browser` use `taxo-db` as their back-end.  `taxo-db`
-imports the [NCBI taxdump archive](ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz)
-into a SQLite3 database and provides a SQL command interface to the database.
+Taxo can also operate interactively (`taxo-browser`), allowing you to navigate
+the taxonomy tree from the command line.
 
-### Why offline?
+`taxo` and `taxo-browser` use `taxo-db` as their back-end.  `taxo-db` imports
+the [NCBI taxdump archive](ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz)
+and offers a SQL interface to query the taxonomy database.
+
+Taxo is lightweight and requires no special installation.
 
 In case you wonder why I don't just use the
 [Taxonomy browser](http://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=Root)
 or [Taxonomy Common Tree](http://www.ncbi.nlm.nih.gov/Taxonomy/CommonTree/wwwcmt.cgi)
 at [NCBI Taxonomy](http://www.ncbi.nlm.nih.gov/guide/taxonomy/): [this](http://io.zwets.it/about)
-may explain.  In my corner of the world, we have the Intermittentnet :-)
+may explain.  In my corner of the world, we have the intermittentnet.
 
 Home: <https://github.com/zwets/taxo> (previously part of
 [blast-galley](https://github.com/zwets/blast-galley)).
@@ -29,7 +31,7 @@ Home: <https://github.com/zwets/taxo> (previously part of
 
 * Prerequisites
 
-  Taxo requires the `sqlite3` and `awk` programs.  These are likely already
+  Taxo requires the `sqlite3` and `awk` programs.  These are often already
   present on your system, or else easily installable.  On Debian/Ubuntu:
 
       sudo apt-get install sqlite3 awk
@@ -48,6 +50,7 @@ Home: <https://github.com/zwets/taxo> (previously part of
 * Import the taxonomy database
 
   The import may yield warnings and errors; the taxdump file format is a mess.
+  The database is installed in `~/.taxo-db`.
 
       ftp 'ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz' | ./taxo-db -v -i -
 
@@ -167,7 +170,7 @@ Command? c
 
 ### License
 
-taxo - Command line taxonomy browser
+taxo - Command line taxonomy browser  
 Copyright (C) 2016  Marco van Zwetselaar
 
 This program is free software: you can redistribute it and/or modify

@@ -20,26 +20,25 @@ Taxo is lightweight and requires no special installation.
 In case you wonder why I don't just use the
 [Taxonomy browser](http://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=Root)
 or [Taxonomy Common Tree](http://www.ncbi.nlm.nih.gov/Taxonomy/CommonTree/wwwcmt.cgi)
-at [NCBI Taxonomy](http://www.ncbi.nlm.nih.gov/guide/taxonomy/): [this](http://io.zwets.it/about)
-may explain.  In my corner of the world, we have the intermittentnet.
+at [NCBI Taxonomy](http://www.ncbi.nlm.nih.gov/guide/taxonomy/): where I
+[live and work](http://io.zwets.it/about) we have the intermittentnet.
 
-Home: <https://github.com/zwets/taxo> (previously part of
-[blast-galley](https://github.com/zwets/blast-galley)).
+Home: <https://github.com/zwets/taxo>
 
 
 ## Installation
 
 * Prerequisites
 
-  Taxo requires the `sqlite3` and `awk` programs.  These are often already
+  Taxo requires the `sqlite3` and `GNU awk` programs.  These are often already
   present on your system, or else easily installable.  On Debian/Ubuntu:
 
-      sudo apt-get install sqlite3 awk
+      sudo apt-get install sqlite3 gawk
 
   If you want to search using regular expressions, then install the PCRE
   extension for `sqlite3`:
 
-      sudo apt-get install sqlite3-pcre awk
+      sudo apt-get install sqlite3-pcre gawk
 
 * Clone the repository
 
@@ -57,8 +56,8 @@ Home: <https://github.com/zwets/taxo> (previously part of
 * [Optional] Add `taxo` to your path
 
   No further installation is needed.  For convenience you could add `taxo`'s
-  directory to your `PATH`, or symlink the `taxo` script in your `~/bin`
-  (assuming it is on your `PATH`, which it is on many systems).
+  directory to your `PATH`, or symlink the `taxo` script in your `~/bin` or
+  `~/.local/bin` directory, depending on your shell.
 
 
 ## Usage
@@ -168,7 +167,7 @@ Command? c
 
 ---
 
-### License
+### Licence
 
 taxo - Command line taxonomy browser  
 Copyright (C) 2016  Marco van Zwetselaar

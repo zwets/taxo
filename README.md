@@ -17,6 +17,9 @@ and offers a SQL interface to query the taxonomy database.
 
 Taxo is lightweight and requires no special installation.
 
+`taxo` has a counterpart [gtdb-taxo](https://github.com/zwets/gtdb-taxo) for
+the GTDB Genome Taxonomy.
+
 In case you wonder why I don't just use the
 [Taxonomy browser](http://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=Root)
 or [Taxonomy Common Tree](http://www.ncbi.nlm.nih.gov/Taxonomy/CommonTree/wwwcmt.cgi)
@@ -51,7 +54,7 @@ Home: <https://github.com/zwets/taxo>
   The import may yield warnings and errors; the taxdump file format is a mess.
   The database is installed in `~/.taxo-db`.
 
-      ftp 'ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz' | ./taxo-db -v -i -
+      wget -O - 'ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz' | ./taxo-db -v -i -
 
 * [Optional] Add `taxo` to your path
 

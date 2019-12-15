@@ -259,15 +259,17 @@ err_exit () {
 
 # Remove the argument unless KEEP is set
 clean_up () {
-    if [ -n "$KEEP" ]; then
-        echo "$PRG_NAME: not removing $1"
-    elif [ -f "$1" ]; then
-        emit "removing file: $1"
-        rm -f "$1" || true
-    elif [ -d "S1" ]; then
-        emit "removing directory: $1"
-        rm -rf "$1" || true
-    fi
+    while [ $# -ne 0 ]; do
+        if [ -n "$KEEP" ]; then
+            echo "$PRG_NAME: not removing $1"
+        elif [ -f "$1" ]; then
+            emit "removing file: $1"
+            rm -f "$1" || true
+        elif [ -d "$1" ]; then
+            emit "removing directory: $1"
+            rm -rf "$1" || true
+        fi
+    done
 }
 
 # Import database from taxdump archive $1 
@@ -277,8 +279,7 @@ import_database () {
     [ "$1" = "-" ] || [ -n "$1" -a -f "$1" ] || err_exit "no such file: $1"
 
     # Create working directory and unpack the taxdump
-    local TMP_DIR="/tmp/${PRG_NAME}.$$"
-    mkdir -p "$TMP_DIR"
+    local TMP_DIR="$(mktemp -d)" || err_exit "failed to create temporary directory"
     emit "unpacking taxdump in $TMP_DIR"
     tar -C "$TMP_DIR" -xzf "$1" || err_exit "failed to unpack: $1"
 
@@ -317,8 +318,7 @@ import_database () {
     $DATABASE_NORMALISE_SQL
     $DATABASE_VIEWS_SQL
 " | sqlite3 -batch -bail "$TMP_DBFILE" || {
-        clean_up "$TMP_DIR"
-        clean_up "$TMP_DBFILE"
+        clean_up "$TMP_DIR" "$TMP_DBFILE"
         err_exit "no changes, database import failed"
     } | while read OUTPUT; do emit "$OUTPUT"; done # 2>&1
 
@@ -368,6 +368,7 @@ which sqlite3 >/dev/null 2>&1 || err_exit "sqlite3 command not found (is SQLite3
 # Parse options
 
 SQLITE_DB="$DEFAULT_SQLITE_DB"
+unset KEEP IMPORT_TGZ ENABLE_REGEXP VERBOSE
 while [ $# -ne 0 -a "$(expr "$1" : '\(.\).*')" = "-" ]; do
     case $1 in
     -d|--db)

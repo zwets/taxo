@@ -18,23 +18,6 @@
 #
 #  Home: http://github.com/zwets/taxo
 
-# Lookup the scientific name for numeric TAXID
-taxid_sciname() {
-    taxo-db "SELECT name FROM Names JOIN NameClass USING (name_class_id)
-             WHERE tax_id = $1 AND name_class_name = 'scientific name';"
-}
-
-# Args: $1=TAXID [$2=anything]; when $2 is present, recurse upward to print all ancestors
-lookup_taxid() {
-    local NODE_LINE="$(taxo-db "SELECT * FROM SciNamesView WHERE tax_id = $1;")"
-    [ -n "$NODE_LINE" ] || return
-    if [ $# -eq 2 ]; then    # recurse up to root first
-        local PARENT="$(field 4 "$NODE_LINE")"
-        [ $PARENT -eq 1 ] || lookup_taxid $PARENT $2
-    fi
-    printf "$PRINTFMT" "$1" "$(field 2 "$NODE_LINE")" "$(field 3 "$NODE_LINE")"
-}
-
 # Exit this script with an error message on stderr
 err_exit() {
     echo "$(basename "$0"): $*" >&2

@@ -88,15 +88,19 @@ $TAXO_DB -r </dev/null >/dev/null 2>&1 || NO_REGEXP=1
 awk -b -O -v QUIET=$QUIET -v TAXO_DB="$TAXO_DB" -v NO_REGEXP="$NO_REGEXP" -e '
 BEGIN { 
     FS="\t"
-    CUR = 1
     if (!NO_REGEXP) TAXO_RE = TAXO_DB " -r"
     if (!QUIET) print "Welcome to taxo-browser.  Press 'h' for help or 'q' to quit."
+    set_cur(1)
     prompt()
 }
 END {
     if (!QUIET) print "Bye."
     close(TAXO_DB)
     close(TAXO_RE)
+}
+function set_cur(i) {
+    CUR = i
+    CUR_NAME = name(i)
 }
 function print_rows() {
     TAXO_DB |& getline 
@@ -114,13 +118,18 @@ function valid_id(i) {
     printf "SELECT COUNT(*) FROM SciNamesView WHERE tax_id = %d;\n", i |& TAXO_DB
     return TAXO_DB |& getline && $0 == 1
 }
+function name(i) {
+    printf "SELECT sci_name FROM SciNamesView WHERE tax_id = %d;\n", i |& TAXO_DB
+    TAXO_DB |& getline 
+    return $1
+}
 function show(i) {
     printf "SELECT tax_id, rank_name, sci_name FROM SciNamesView WHERE tax_id = %d; SELECT 0;\n", i |& TAXO_DB
     print_rows()
 }
 function jump(new) {
     if (valid_id(new)) {
-        CUR = new
+        set_cur(new)
         show(CUR)
     }
     else {
@@ -128,7 +137,7 @@ function jump(new) {
     }
 }
 function up() {
-    if (CUR != 1) CUR=parent_id(CUR)
+    if (CUR != 1) set_cur(parent_id(CUR))
     show(CUR)
 }
 function parent() {
@@ -202,7 +211,7 @@ function help() {
     print "- q(uit) or ^D   leave"
 }
 function prompt() {
-    if (!QUIET) printf "\nCommand? "
+    if (!QUIET) printf "\n(" CUR_NAME ") ? "
 }
 
 # Repeat for every line

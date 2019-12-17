@@ -130,13 +130,16 @@ tree, and examine ancestors, siblings, or descendants in each context.
 
 ```
 $ ./taxo
+Welcome to taxo-browser.  Press h for help or q to quit.
 
-Command? help
+(root) ? help
+taxo - Navigate the NCBI taxonomy
 
 Commands:
 -                ENTER key displays current node ID, rank and name
 - NUMBER         jump to node with taxid NUMBER
-- /REGEX         search for nodes whose name matches left-anchored REGEX
+- %TEXT          search for nodes whose name contains TEXT
+- /REGEX         search for nodes whose name matches REGEX
 - u(p)           move current node pointer to parent node
 - p(arent)       show parent but do not move current node pointer there
 - a(ncestors)    show lineage of current node all the way up to root
@@ -145,27 +148,35 @@ Commands:
 - D(escendants)  show all descendants of the current node
 - q(uit) or ^D   leave
 
-Command? /Acinetobacter baumannii$
-    470 species      Acinetobacter baumannii
+(root) ? /Acinetobacter baumannii$
+    470 species          Acinetobacter baumannii
 
-Command? 1279
-   1279 genus        Staphylococcus
+(root) ? 470
+    470 species          Acinetobacter baumannii
 
-Command? s
-  45669 genus        Salinicoccus
- 370802              environmental samples
- 227979 genus        Jeotgalicoccus
-1647178 genus        Aliicoccus
- 489909 genus        Nosocomiicoccus
-  69965 genus        Macrococcus
- 111016              unclassified Staphylococcaceae
-   1279 genus        Staphylococcus
+(Acinetobacter baumannii) ? parent
+ 909768 species group    Acinetobacter calcoaceticus/baumannii complex
 
-Command? c
-   1280 species      Staphylococcus aureus
-   1281 species      Staphylococcus carnosus
-   1282 species      Staphylococcus epidermidis
-   ...    ...
+(Acinetobacter baumannii) ? up
+ 909768 species group    Acinetobacter calcoaceticus/baumannii complex
+
+(Acinetobacter calcoaceticus/baumannii complex) ? up
+    469 genus            Acinetobacter
+
+(Acinetobacter) ? siblings
+    475 genus            Moraxella
+    497 genus            Psychrobacter
+  54393                  unclassified Moraxellaceae
+  75924                  environmental samples
+ 222991 genus            Alkanindiges
+ 661182 genus            Perlucidibaca
+1268272 genus            Paraperlucidibaca
+1604696 genus            Faucicola
+1742986 genus            Fluviicoccus
+1930856 genus            Cavicella
+
+(Acinetobacter) ? q
+Bye.
 ```
 
 ---

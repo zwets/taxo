@@ -196,7 +196,7 @@ function regex_search(r) {
 }
 function help() {
     print "taxo - Navigate the NCBI taxonomy"
-    print
+    print ""
     print "Commands:"
     print "-                ENTER key displays current node ID, rank and name"
     print "- NUMBER         jump to node with taxid NUMBER"

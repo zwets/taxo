@@ -269,6 +269,7 @@ clean_up () {
             emit "removing directory: $1"
             rm -rf "$1" || true
         fi
+        shift
     done
 }
 
@@ -318,7 +319,7 @@ import_database () {
     $DATABASE_NORMALISE_SQL
     $DATABASE_VIEWS_SQL
 " | sqlite3 -batch -bail "$TMP_DBFILE" || {
-        clean_up "$TMP_DIR" "$TMP_DBFILE"
+        clean_up "$TMP_DBFILE" "$TMP_DIR"
         err_exit "no changes, database import failed"
     } | while read OUTPUT; do emit "$OUTPUT"; done # 2>&1
 

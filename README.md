@@ -36,31 +36,33 @@ Home: <https://github.com/zwets/taxo>
   Taxo requires the `sqlite3` and `GNU awk` programs.  These are often already
   present on your system, or else easily installable.  On Debian/Ubuntu:
 
-      sudo apt-get install sqlite3 gawk
+        sudo apt-get install sqlite3 gawk
 
-  If you want to search using regular expressions, then install the PCRE
-  extension for `sqlite3`:
+  If you want to be able to search using regular expressions, then install the
+  `sqlite3` PCRE extension:
 
-      sudo apt-get install sqlite3-pcre gawk
+        sudo apt-get install sqlite3-pcre sqlite3 gawk
 
-* Clone the repository
+* Clone this repository
 
-      git clone https://github.com/zwets/taxo.git
-      cd taxo
-      ./taxo --help
+        git clone https://github.com/zwets/taxo.git
+        cd taxo
+        ./taxo --help
 
 * Import the taxonomy database
 
   The import may yield warnings and errors; the taxdump file format is a mess.
-  The database is installed in `~/.taxo-db`.
 
       wget -O - 'ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz' | ./taxo-db -v -i -
+
+  By default the database is installed in `~/.taxo-db`.  If environment variable
+  `TAXO_DB_DIR` is set, it will use that directory.  The database files is `taxo.db`.
 
 * [Optional] Add `taxo` to your path
 
   No further installation is needed.  For convenience you could add `taxo`'s
-  directory to your `PATH`, or symlink the `taxo` script in your `~/bin` or
-  `~/.local/bin` directory, depending on your shell.
+  directory to your `PATH`, or symlink the `taxo-*` scripts into your `~/bin` or
+  `~/.local/bin`.
 
 
 ## Usage

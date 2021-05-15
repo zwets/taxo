@@ -26,6 +26,7 @@ PRG_NAME="$(basename "$0")"
 
 # Default location for the SQLite database
 DEFAULT_SQLITE_DB="$HOME/.${PRG_NAME}/taxo.db"
+SQLITE_DB="${TAXO_DB_FILE:-"$DEFAULT_SQLITE_DB"}"
 
 # The location of the NCBI taxdump file
 TAXDUMP_URL="ftp://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz"
@@ -332,17 +333,18 @@ import_database () {
 # Show usage information and exit
 usage_exit() {
     echo "
-Usage: $PRG_NAME [OPTIONS] [SQL]
+Usage: $PRG_NAME [OPTIONS] [SQL|-]
 
   Query the taxonomy database using SQL.
 
-  Options
-   -d, --db DBFILE       Database file (default: $(echo $DEFAULT_SQLITE_DB | sed -e "s,^$HOME,~,"))
-   -i, --import TAXDUMP  Create or update database from TAXDUMP (may be '-')
-   -k, --keep            Do not delete temporary files (for debugging)
-   -r, --regexp          Enable REGEXP extension, or exit with error
-   -v, --verbose         Show progress messages on stderr
-   -h, --help            Show usage information
+  OPTIONS
+   -d,--db DBFILE      Name of database file (default: ~/.taxo-db/taxo.db
+                       or the file pointed to by TAXO_DB_FILE if set)
+   -i,--import FILE|-  Create or update DBFILE from taxdump FILE or stdin
+   -k,--keep           Do not delete temporary files (for debugging)
+   -r,--regexp         Enable REGEXP extension, or exit with error
+   -v,--verbose        Show progress messages on stderr
+   -h,--help           Show usage information
 
   This program executes SQL against the taxonomy database DBFILE.  If no
   SQL argument is present or when it is '-', starts a SQLite interactive
@@ -353,11 +355,12 @@ Usage: $PRG_NAME [OPTIONS] [SQL]
   for help, and ^D or '.quit' to quit.
 
   The DBFILE is generated from the NCBI taxdump archive.  To create or
-  update it, download the archive and use --import.  The archive can be
-  got from $TAXDUMP_URL.
+  update it, download the archive and use --import.  In one command:
 
-  For REGEXP search to work, you may need to install a SQLite3 extension.
-  On Ubuntu this extension is available in package sqlite3-pcre.
+    wget $TAXDUMP_URL | ./taxo-db -v -i -
+
+  For REGEXP search to work, SQLite3 must have the PCRE extension.  This
+  extension is available on Ubuntu as package sqlite3-pcre.
 " >&2
     exit ${1:-1}
 }
@@ -368,40 +371,18 @@ which sqlite3 >/dev/null 2>&1 || err_exit "sqlite3 command not found (is SQLite3
 
 # Parse options
 
-SQLITE_DB="$DEFAULT_SQLITE_DB"
 unset KEEP IMPORT_TGZ ENABLE_REGEXP VERBOSE
 while [ $# -ne 0 -a "$(expr "$1" : '\(.\).*')" = "-" ]; do
     case $1 in
-    -d|--db)
-        shift
-        [ $# -ge 1 ] || usage_exit
-        SQLITE_DB="$1"
-        ;;
-    --db=*)
-        SQLITE_DB="${1#--db=}"
-        ;;
-    -i|--import)
-        shift
-        [ $# -ge 1 ] || usage_exit
-        IMPORT_TGZ="$1"
-        ;;
-    --import=*)
-        IMPORT_TGZ="${1#--import=}"
-        ;;
-    -k|--keep)
-        KEEP=1
-        ;;
-    -r|--regex*)
-        ENABLE_REGEXP=1
-        ;;
-    -v|--verbose)
-        VERBOSE=1
-        ;;
-    -h|--help)
-        usage_exit 0
-        ;;
-    *) usage_exit
-        ;;
+    -d|--db)      shift && [ -n "$1" ] && SQLITE_DB="$1" || usage_exit ;;
+    --db=*)       SQLITE_DB="${1#--db=}" ;;
+    -i|--import)  shift && [ -n "$1" ] && IMPORT_TGZ="$1" || usage_exit ;;
+    --import=*)   IMPORT_TGZ="${1#--import=}" ;;
+    -k|--keep)    KEEP=1 ;;
+    -r|--regex*)  ENABLE_REGEXP=1 ;;
+    -v|--verbose) VERBOSE=1 ;;
+    -h|--help)    usage_exit 0 ;;
+    *) usage_exit ;;
     esac
     shift
 done

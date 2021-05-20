@@ -25,7 +25,7 @@
 PRG_NAME="$(basename "$0")"
 
 # Default location for the SQLite database
-DEFAULT_SQLITE_DB="$HOME/.${PRG_NAME}/taxo.db"
+DEFAULT_SQLITE_DB="$HOME/.taxo-db/taxo.db"
 SQLITE_DB="${TAXO_DB_FILE:-"$DEFAULT_SQLITE_DB"}"
 
 # The location of the NCBI taxdump file

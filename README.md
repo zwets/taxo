@@ -55,8 +55,8 @@ Home: <https://github.com/zwets/taxo>
 
       wget -O - 'ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz' | ./taxo-db -v -i -
 
-  By default the database is installed in `~/.taxo-db`.  If environment variable
-  `TAXO_DB_DIR` is set, it will use that directory.  The database files is `taxo.db`.
+  By default the database is installed in `~/.taxo-db/ncbi-taxo.db`.  If env
+  variable `TAXO_DB_FILE` is set, it will use that file location.
 
 * [Optional] Add `taxo` to your path
 

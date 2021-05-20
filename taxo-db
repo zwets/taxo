@@ -374,9 +374,9 @@ which sqlite3 >/dev/null 2>&1 || err_exit "sqlite3 command not found (is SQLite3
 unset KEEP IMPORT_TGZ ENABLE_REGEXP VERBOSE
 while [ $# -ne 0 -a "$(expr "$1" : '\(.\).*')" = "-" ]; do
     case $1 in
-    -d|--db)      shift && [ -n "$1" ] && SQLITE_DB="$1" || usage_exit ;;
+    -d|--db)      shift && SQLITE_DB="$1" || usage_exit ;;
     --db=*)       SQLITE_DB="${1#--db=}" ;;
-    -i|--import)  shift && [ -n "$1" ] && IMPORT_TGZ="$1" || usage_exit ;;
+    -i|--import)  shift && IMPORT_TGZ="$1" || usage_exit ;;
     --import=*)   IMPORT_TGZ="${1#--import=}" ;;
     -k|--keep)    KEEP=1 ;;
     -r|--regex*)  ENABLE_REGEXP=1 ;;
